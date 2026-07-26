@@ -13,6 +13,14 @@ A GitHub Action that **blocks a merge unless a valid signed ALLOW receipt exists
 5. **Passes iff** the receipt verifies **and** `execution_action` is `CONTINUE` or `CONTINUE_WITH_MONITORING`. Fails on `BLOCK`, `REQUIRE_APPROVAL`, unverified/missing/tampered/expired/unknown-key. Semantics = *"signed ALLOW for this exact diff"*, not *"breaking == 0"*.
 6. **Posts a Check Run** named **`CodeRifts / contract-gate`** (stable) — `success` only on pass. Mark it a required status check in branch protection to make merges unbypassable.
 
+## Making it block merges (not just advise)
+
+Posting the check is advisory until you mark it **required**. See **[ENFORCEMENT.md](ENFORCEMENT.md)**
+for the exact steps (copy [`examples/contract-gate.yml`](examples/contract-gate.yml), then run
+[`scripts/require-contract-gate.sh`](scripts/require-contract-gate.sh) or the UI), the stable
+check-name contract, and how to close the fail-open gaps. See **[SECURITY.md](SECURITY.md)** for the
+trust model and the admin-override residual.
+
 ## Usage
 
 ```yaml

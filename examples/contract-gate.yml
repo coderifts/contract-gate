@@ -1,0 +1,33 @@
+# Copy this to `.github/workflows/contract-gate.yml` in YOUR repository.
+#
+# It runs the CodeRifts contract gate on every pull request. The gate posts a Check Run named
+# EXACTLY:  CodeRifts / contract-gate
+# Make THAT string a required status check on your protected branch (see ENFORCEMENT.md) to turn
+# this from advisory into merge-blocking.
+name: CodeRifts Contract Gate
+
+# Run on EVERY pull request to the protected branch. Do NOT add `paths:` filters — a path filter
+# would skip contract PRs the filter doesn't match, and a required check that never runs leaves the
+# PR mergeable with the check "pending" (see ENFORCEMENT.md, "fail-closed on absence").
+on:
+  pull_request:
+
+# Least privilege: write checks (to post the Check Run) + read the code (to derive the diff).
+permissions:
+  checks: write
+  contents: read
+
+jobs:
+  contract-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # REQUIRED: the gate derives the change set from `git diff base...head`, so the full
+          # history (both sides of the diff) must be present locally.
+          fetch-depth: 0
+
+      - uses: coderifts/contract-gate@v0
+        with:
+          api-key: ${{ secrets.CODERIFTS_API_KEY }}
+          # api-url: https://app.coderifts.com   # override only for self-hosted
