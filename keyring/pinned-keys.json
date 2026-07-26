@@ -1,0 +1,12 @@
+{
+  "_comment": "PINNED trust anchor. Trust-on-first-pin from GET /api/v1/attestation/public-key. Rotation = ADD a new key entry (additive PR), never replace. The gate loads ONLY this file offline and NEVER fetches keys from the server it verifies.",
+  "keys": [
+    {
+      "kid": "2026-07-k1",
+      "alg": "Ed25519",
+      "status": "active",
+      "pinned_from": "https://app.coderifts.com/api/v1/attestation/public-key",
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAJh8xDXLaOCpQ+bBC9d2I+zG1qVsCpeCuWbtH+aGjC7A=\n-----END PUBLIC KEY-----\n"
+    }
+  ]
+}

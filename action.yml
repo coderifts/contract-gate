@@ -1,0 +1,26 @@
+name: 'CodeRifts Contract Gate'
+description: 'Block a merge unless a valid signed ALLOW receipt exists for the PR''s actual head diff (offline-verified against a pinned keyring).'
+author: 'CodeRifts'
+branding:
+  icon: 'lock'
+  color: 'blue'
+
+inputs:
+  api-key:
+    description: 'CodeRifts API key (used only to request a signed preflight receipt).'
+    required: true
+  api-url:
+    description: 'CodeRifts API base URL.'
+    required: false
+    default: 'https://app.coderifts.com'
+  github-token:
+    description: 'Token with checks:write to post the "CodeRifts / contract-gate" Check Run.'
+    required: false
+    default: ${{ github.token }}
+
+# The receipt is ALWAYS verified offline against the keyring pinned in this action
+# (keyring/pinned-keys.json). The gate NEVER fetches the verification key from the server it is
+# verifying. Requires actions/checkout with fetch-depth: 0 so base..head is available locally.
+runs:
+  using: 'node20'
+  main: 'src/index.js'
