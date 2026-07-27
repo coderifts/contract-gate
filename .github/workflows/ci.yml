@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # This package has zero dependencies and no committed lockfile, so `npm install` is used
+      # (`npm ci` requires a package-lock.json). It vendors verify.js and imports only Node builtins.
+      - name: Install
+        run: npm install
+
+      # The only gate this repo defines. node --test discovers test/*.test.js.
+      - name: Test (node --test)
+        run: npm test
