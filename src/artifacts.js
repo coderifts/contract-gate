@@ -7,6 +7,11 @@
  * get a clean receipt while merging something breaking. Here the artifacts are read straight from
  * git: the changed files between base and head, with before = base blob, after = head blob. There is
  * no code path that accepts caller-supplied artifacts.
+ *
+ * blobAt three-state convention (absent ≠ present ≠ unreadable):
+ *   present   — string content (may be empty '')
+ *   absent    — null (path not in the resolved ref's tree)
+ *   unreadable — throws with code ARTIFACT_UNREADABLE (bad ref, corrupt object, other git errors)
  */
 
 const { execFileSync } = require('node:child_process');
@@ -32,18 +37,98 @@ function classify(path) {
 
 /** Default git runner: argv form (never a shell string) so a path can never become a command. */
 function defaultGit(args, cwd) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+/** Collect stderr/message text from a failed gitImpl / execFileSync error. */
+function gitErrorText(err) {
+  if (!err) return '';
+  const parts = [err.stderr, err.message, err.stdout];
+  return parts.map((p) => (p == null ? '' : String(p))).join('\n');
 }
 
 /**
- * Read the blob at <ref>:<path>. Returns '' when the file does not exist at that ref (added on head /
- * deleted on head), matching preflight's before/after-empty convention.
+ * True when git reports the path is missing at an already-resolved ref
+ * (not a bad ref / corrupt object). Measured patterns:
+ *   fatal: path 'X' does not exist in 'REF'
+ *   fatal: path 'X' exists on disk, but not in 'REF'  (path absent from that tree)
+ */
+function isPathAbsentAtRef(err) {
+  const text = gitErrorText(err);
+  return /path ['"][^'"]+['"] does not exist in/.test(text)
+    || /path ['"][^'"]+['"] exists on disk, but not in/.test(text);
+}
+
+/**
+ * @param {string} ref
+ * @param {string} filePath
+ * @param {Error} cause
+ * @param {string} [detail]
+ * @returns {Error & { code: string, ref: string, path: string }}
+ */
+function artifactUnreadableError(ref, filePath, cause, detail) {
+  const causeText = gitErrorText(cause).trim().split('\n')[0] || (cause && cause.message) || 'git error';
+  const err = new Error(
+    `artifact_unreadable: ${filePath} at ${ref}`
+    + (detail ? ` (${detail})` : '')
+    + `: ${causeText.slice(0, 240)}`,
+  );
+  err.code = 'ARTIFACT_UNREADABLE';
+  err.ref = ref;
+  err.path = filePath;
+  err.cause = cause;
+  return err;
+}
+
+/**
+ * Read the blob at <ref>:<path>.
+ *
+ * Returns:
+ *   - string  — present (including legitimate empty content '')
+ *   - null    — absent (path not in the tree at ref)
+ * Throws ARTIFACT_UNREADABLE when the ref cannot be resolved or git fails for a non-absent reason.
+ *
+ * Discrimination (measured): resolve ref with `git rev-parse --verify ref^{commit}` first so a
+ * bogus object is never mistaken for a missing path; then `git show ref:path` — path-missing
+ * stderr patterns → null; anything else → throw.
  */
 function blobAt(ref, path, cwd, gitImpl) {
   try {
-    return gitImpl(['show', `${ref}:${path}`], cwd);
-  } catch (_) {
-    return '';
+    gitImpl(['rev-parse', '--verify', `${ref}^{commit}`], cwd);
+  } catch (err) {
+    throw artifactUnreadableError(ref, path, err, 'bad_ref');
+  }
+
+  try {
+    const content = gitImpl(['show', `${ref}:${path}`], cwd);
+    // Successful show: present. Empty blob is '' (not absent).
+    return content == null ? '' : String(content);
+  } catch (err) {
+    if (isPathAbsentAtRef(err)) return null;
+    throw artifactUnreadableError(ref, path, err, 'git_show_failed');
+  }
+}
+
+/**
+ * Read one side; on unreadable, tag the side name for callers.
+ * @returns {string|null}
+ */
+function blobAtSide(ref, path, cwd, gitImpl, side) {
+  try {
+    return blobAt(ref, path, cwd, gitImpl);
+  } catch (err) {
+    if (err && err.code === 'ARTIFACT_UNREADABLE') {
+      err.side = side;
+      throw err;
+    }
+    const wrapped = artifactUnreadableError(ref, path, err, side);
+    wrapped.side = side;
+    throw wrapped;
   }
 }
 
@@ -54,6 +139,7 @@ function blobAt(ref, path, cwd, gitImpl) {
  * @param {string} [o.cwd]     repo working directory
  * @param {(args:string[],cwd:string)=>string} [o.gitImpl]  injectable git (tests)
  * @returns {{ artifacts: Array<{id,type,before,after}>, changedContractFiles: string[], allChanged: string[] }}
+ * @throws {Error} code ARTIFACT_UNREADABLE when a blob cannot be read (fail closed — no fabricated '')
  */
 function deriveArtifactsFromDiff({ baseRef, headRef, cwd = process.cwd(), gitImpl = defaultGit }) {
   if (!baseRef || !headRef) throw new Error('deriveArtifactsFromDiff: baseRef and headRef are required');
@@ -68,13 +154,30 @@ function deriveArtifactsFromDiff({ baseRef, headRef, cwd = process.cwd(), gitImp
     const type = classify(path);
     if (!type) continue;
     changedContractFiles.push(path);
-    const before = blobAt(baseRef, path, cwd, gitImpl);
-    const after = blobAt(headRef, path, cwd, gitImpl);
+
+    // Three-state reads: null = absent, string = present, throw = unreadable (not flattened to '').
+    const beforeRaw = blobAtSide(baseRef, path, cwd, gitImpl, 'before');
+    const afterRaw = blobAtSide(headRef, path, cwd, gitImpl, 'after');
+
+    // Preflight / NEW_ARTIFACT convention: absent maps to empty string for the wire shape only.
+    // Unreadable never reaches here (thrown above).
+    const before = beforeRaw === null ? '' : beforeRaw;
+    const after = afterRaw === null ? '' : afterRaw;
+
     // A rename/no-op with identical bytes is not a material change; skip it.
+    // Both-absent (null→'') also skips — nothing to compare.
     if (before === after) continue;
     artifacts.push({ id: path, type, before, after });
   }
   return { artifacts, changedContractFiles, allChanged };
 }
 
-module.exports = { deriveArtifactsFromDiff, classify, CLASSIFIERS, blobAt, defaultGit };
+module.exports = {
+  deriveArtifactsFromDiff,
+  classify,
+  CLASSIFIERS,
+  blobAt,
+  defaultGit,
+  isPathAbsentAtRef,
+  artifactUnreadableError,
+};
