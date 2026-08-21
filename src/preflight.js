@@ -9,16 +9,34 @@
 const DEFAULT_TIMEOUT_MS = 20000;
 
 /**
+ * Decision Spec 2.0 request body. Gate ENFORCES a merge (needs a signed receipt) → authorize.
+ * Source binding slots are context.head / context.base (producer ID686) — not context.revision.
+ *
+ * @param {object} o
+ * @param {Array} o.artifacts
+ * @param {object} [o.context]
+ * @param {'analyze'|'authorize'} [o.preflight_mode='authorize']
+ * @returns {object}
+ */
+function buildPreflightRequest({ artifacts, context = {}, preflight_mode = 'authorize' } = {}) {
+  return { artifacts, preflight_mode, context };
+}
+
+/**
  * @param {object} o
  * @param {string} o.apiKey
  * @param {string} o.apiUrl               base URL, e.g. https://app.coderifts.com
  * @param {Array}  o.artifacts            diff-derived artifacts (NEVER caller-supplied)
- * @param {object} [o.context]            preflight context (operation/environment/repository/...)
+ * @param {object} [o.context]            preflight context (operation/environment/repository/base/head)
+ * @param {'analyze'|'authorize'} [o.preflight_mode='authorize']
  * @param {typeof fetch} [o.fetchImpl]    injectable fetch (tests)
  * @param {number} [o.timeoutMs]
  * @returns {Promise<object>} parsed preflight response
  */
-async function callPreflight({ apiKey, apiUrl, artifacts, context = {}, fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+async function callPreflight({
+  apiKey, apiUrl, artifacts, context = {}, preflight_mode = 'authorize',
+  fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
   if (!apiKey) throw new Error('callPreflight: apiKey is required');
   if (!apiUrl) throw new Error('callPreflight: apiUrl is required');
   if (!Array.isArray(artifacts)) throw new Error('callPreflight: artifacts must be an array');
@@ -31,7 +49,7 @@ async function callPreflight({ apiKey, apiUrl, artifacts, context = {}, fetchImp
     res = await fetchImpl(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ artifacts, context }),
+      body: JSON.stringify(buildPreflightRequest({ artifacts, context, preflight_mode })),
       signal: controller.signal,
     });
   } finally {
@@ -50,4 +68,4 @@ async function callPreflight({ apiKey, apiUrl, artifacts, context = {}, fetchImp
   }
 }
 
-module.exports = { callPreflight, DEFAULT_TIMEOUT_MS };
+module.exports = { callPreflight, buildPreflightRequest, DEFAULT_TIMEOUT_MS };

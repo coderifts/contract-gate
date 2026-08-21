@@ -75,9 +75,19 @@ async function runGate({
       return { exitCode: 0, gate: { pass: true, reason: 'no_contract_changes' }, artifactCount: 0 };
     }
 
-    // 2. preflight (v4 receipt path). context carries head SHA so the decision records what it covers.
-    const context = { operation: 'merge', environment: 'ci', repository: `${owner}/${repo}`, revision: headSha };
-    const preflightResponse = await preflightImpl({ apiKey, apiUrl, artifacts, context, fetchImpl });
+    // 2. preflight (v4 receipt path). Decision Spec 2.0: authorize (gate ENFORCES merge, needs a
+    // receipt). Source binding is context.head / context.base — producer copies those into the
+    // signed envelope (ID686). `revision` is not a producer slot (would leave envelope.head unbound).
+    const context = {
+      operation: 'merge',
+      environment: 'ci',
+      repository: `${owner}/${repo}`,
+      base: baseSha,
+      head: headSha,
+    };
+    const preflightResponse = await preflightImpl({
+      apiKey, apiUrl, artifacts, context, preflight_mode: 'authorize', fetchImpl,
+    });
 
     // 3-5. verify offline against the PINNED keyring + decide.
     const keyring = await loadKeyring(keyringPath); // local file -> NO network, never the server under test
