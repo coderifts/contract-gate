@@ -4,8 +4,9 @@
  * The gate decision — PURE (no I/O), so it is fully unit-testable and the verify.js crypto path is
  * exercised for real. Fail-closed on every branch: the ONLY way to pass is a receipt that verifies
  * offline against the pinned keyring AND a decision whose execution_action is an approval
- * (CONTINUE / CONTINUE_WITH_MONITORING). Semantics = "signed ALLOW for this exact change set",
- * never "breaking == 0".
+ * (CONTINUE / CONTINUE_WITH_MONITORING) AND whose signed envelope slots match expectedContext
+ * (current PR identity). Semantics = "signed ALLOW for this exact change set AND this exact
+ * head/base/repo/operation", never "breaking == 0".
  */
 
 const { verifyReceipt } = require('./verify');
@@ -14,16 +15,40 @@ const { verifyReceipt } = require('./verify');
 const PASSING_ACTIONS = new Set(['CONTINUE', 'CONTINUE_WITH_MONITORING']);
 
 /**
+ * Non-empty string slot. null/undefined/'' are unbound — not a match (P0-1: missing is not believed).
+ * @param {*} v
+ * @returns {string|null}
+ */
+function boundSlot(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s === '' ? null : s;
+}
+
+/**
+ * Compare a signed envelope slot to the current expected value.
+ * Missing on either side OR mismatch → fail (never treat unbound as "matches anything").
+ * @returns {string|null} reason token, or null when the slot matches
+ */
+function mismatchReason(envelope, expected, envelopeKey, expectedKey, reason) {
+  const got = boundSlot(envelope[envelopeKey]);
+  const want = boundSlot(expected && expected[expectedKey]);
+  if (got == null || want == null || got !== want) return reason;
+  return null;
+}
+
+/**
  * @param {object} o
  * @param {object} o.preflightResponse  parsed POST /api/v1/preflight body
  * @param {Map} o.keyring               pinned keyring (kid -> { publicKey, status, retired_at })
- * @param {string} [o.headSha]          the commit this decision is bound to (for the check output)
+ * @param {string} [o.headSha]          current PR head SHA (check output; same as expectedContext.head)
+ * @param {object} [o.expectedContext]  current PR identity from runGate: { operation, repository, base, head }
  * @param {number} [o.now]              clock override (tests)
  * @returns {{ pass:boolean, conclusion:'success'|'failure', reason:string,
  *             decision:(string|null), executionAction:(string|null), receiptStatus:(string|null),
  *             headSha:(string|null), summary:string }}
  */
-function evaluateGate({ preflightResponse, keyring, headSha = null, now }) {
+function evaluateGate({ preflightResponse, keyring, headSha = null, expectedContext = null, now }) {
   const fail = (reason, extra = {}) => ({
     pass: false, conclusion: 'failure', reason,
     decision: extra.decision ?? null, executionAction: extra.executionAction ?? null,
@@ -41,7 +66,7 @@ function evaluateGate({ preflightResponse, keyring, headSha = null, now }) {
   // Verify OFFLINE against the pinned keyring. expectedKid:null => accept any kid present in the
   // pinned bundle (rotation is additive); an unpinned kid resolves to UNKNOWN_KEY => fail-closed.
   // Passing the envelope activates verify.js step 6 (v4 body_hash binding): the receipt is bound to
-  // THIS decision_result, which was built from the diff-derived artifacts.
+  // THIS decision_result (complete envelope, including head/base/repo/operation/preflight_mode).
   let result;
   try {
     result = verifyReceipt(token, { keyring, expectedKid: null }, { envelope, now });
@@ -57,6 +82,23 @@ function evaluateGate({ preflightResponse, keyring, headSha = null, now }) {
   }
   if (!executionAction || !PASSING_ACTIONS.has(executionAction)) {
     return fail('decision_not_allow', { receiptStatus: result.status, decision, executionAction });
+  }
+
+  // P0-1: rebind the signed envelope to the CURRENT PR identity. Missing expectedContext or any
+  // unbound/mismatched slot is not permission. Envelope slots are ID686 top-level fields covered
+  // by decision_body_hash (verify.js step 6 already checked bh === canonical(envelope)).
+  const ctx = expectedContext && typeof expectedContext === 'object' ? expectedContext : {};
+  const mode = boundSlot(envelope.preflight_mode);
+  if (mode !== 'authorize') {
+    return fail('mode_mismatch', { receiptStatus: result.status, decision, executionAction });
+  }
+  const bindFail =
+    mismatchReason(envelope, ctx, 'operation', 'operation', 'operation_mismatch')
+    || mismatchReason(envelope, ctx, 'repository', 'repository', 'repo_mismatch')
+    || mismatchReason(envelope, ctx, 'base', 'base', 'base_mismatch')
+    || mismatchReason(envelope, ctx, 'head', 'head', 'head_mismatch');
+  if (bindFail) {
+    return fail(bindFail, { receiptStatus: result.status, decision, executionAction });
   }
 
   return {

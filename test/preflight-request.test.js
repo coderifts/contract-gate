@@ -80,7 +80,18 @@ test('v2 request: runGate submits authorize + head/base SHAs (not revision) to p
     baseSha, headSha, cwd: dir, keyringPath,
     preflightImpl: async (opts) => {
       captured.opts = opts;
-      const env = envelope({ execution_action: 'CONTINUE', decision: 'ALLOW' });
+      const ctx = opts.context || {};
+      const env = envelope({
+        execution_action: 'CONTINUE',
+        decision: 'ALLOW',
+        extra: {
+          preflight_mode: opts.preflight_mode || 'authorize',
+          operation: ctx.operation,
+          repository: ctx.repository,
+          base: ctx.base,
+          head: ctx.head,
+        },
+      });
       return { chain_receipt: mintV4(signer, env), decision_result: env };
     },
     postCheckRunImpl: async () => ({ ok: true, status: 201 }),

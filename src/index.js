@@ -7,8 +7,9 @@
  *   1. derive contract artifacts from the PR's ACTUAL head diff (git) — never caller input
  *   2. POST /api/v1/preflight with those artifacts -> chain_receipt + decision_result (v4)
  *   3. verify the receipt OFFLINE against the PINNED keyring (never fetch keys from the server)
- *   4. bind to head SHA (recorded in the check output)
+ *   4. bind the signed envelope to the CURRENT PR identity (head/base/repo/operation/mode)
  *   5. pass IFF verified AND execution_action in {CONTINUE, CONTINUE_WITH_MONITORING}
+ *      AND every expectedContext slot matches the envelope (missing ≠ match)
  *   6. post the "CodeRifts / contract-gate" Check Run (success only on pass)
  */
 
@@ -89,9 +90,16 @@ async function runGate({
       apiKey, apiUrl, artifacts, context, preflight_mode: 'authorize', fetchImpl,
     });
 
-    // 3-5. verify offline against the PINNED keyring + decide.
+    // 3-5. verify offline against the PINNED keyring + rebind to THIS PR (P0-1).
+    // Current head/base come from GITHUB_EVENT_PATH pull_request.head/base.sha (not GITHUB_SHA).
     const keyring = await loadKeyring(keyringPath); // local file -> NO network, never the server under test
-    const gate = evaluateGate({ preflightResponse, keyring, headSha });
+    const expectedContext = {
+      operation: context.operation,
+      repository: context.repository,
+      base: context.base,
+      head: context.head,
+    };
+    const gate = evaluateGate({ preflightResponse, keyring, headSha, expectedContext });
 
     // 6. post the stable check run.
     const title = gate.pass ? 'Signed ALLOW verified for this diff' : 'Blocked — no verified ALLOW for this diff';

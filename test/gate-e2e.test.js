@@ -39,12 +39,19 @@ function makeRepo(baseSpec, headSpec) {
  * so the gate's verify path is fully real. `captured` records what artifacts the gate submitted.
  */
 function mockPreflightServer(captured) {
-  return async ({ artifacts }) => {
+  return async ({ artifacts, context = {}, preflight_mode = 'authorize' }) => {
     captured.artifacts = artifacts;
+    const extra = {
+      preflight_mode,
+      operation: context.operation,
+      repository: context.repository,
+      base: context.base,
+      head: context.head,
+    };
     const breaking = artifacts.some((a) => /paths:\s*\{\}/.test(a.after));
     const env = breaking
-      ? envelope({ execution_action: 'STOP', decision: 'BLOCK' })
-      : envelope({ execution_action: 'CONTINUE', decision: 'ALLOW' });
+      ? envelope({ execution_action: 'STOP', decision: 'BLOCK', extra })
+      : envelope({ execution_action: 'CONTINUE', decision: 'ALLOW', extra });
     return { chain_receipt: mintV4(signer, env), decision_result: env };
   };
 }
