@@ -16,6 +16,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { deriveArtifactsFromDiff, defaultGit } = require('./artifacts');
+const { buildGateCompletenessClaim } = require('./completeness-claim');
 const { callPreflight } = require('./preflight');
 const { evaluateGate, buildSummary } = require('./gate');
 const { postCheckRun, CHECK_NAME } = require('./check-run');
@@ -85,6 +86,10 @@ async function runGate({
       repository: `${owner}/${repo}`,
       base: baseSha,
       head: headSha,
+      // Existing ID637 host-claim slots (not a new schema). Fail-closed when
+      // artifacts ⊂ derived leaves. source is request-only, not signed.
+      completeness: buildGateCompletenessClaim(artifacts),
+      require_completeness: 'attested',
     };
     const preflightResponse = await preflightImpl({
       apiKey, apiUrl, artifacts, context, preflight_mode: 'authorize', fetchImpl,

@@ -113,4 +113,11 @@ test('v2 request: runGate submits authorize + head/base SHAs (not revision) to p
   assert.equal(body.preflight_mode, 'authorize');
   assert.equal(body.context.head, headSha);
   assert.equal('revision' in body.context, false);
+  const claim = captured.opts.context.completeness;
+  assert.equal(claim.source, 'gate-derived');
+  assert.equal(claim.require_full_coverage, true);
+  assert.equal(captured.opts.context.require_completeness, 'attested');
+  assert.equal(claim.leaves.length, captured.opts.artifacts.length);
+  assert.equal(claim.completeness_count, captured.opts.artifacts.length);
+  assert.equal(claim.leaves[0].path, `openapi:${captured.opts.artifacts[0].id}`);
 });
