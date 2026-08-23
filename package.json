@@ -4,6 +4,10 @@
   "private": true,
   "description": "GitHub Action that blocks a merge unless a valid signed ALLOW receipt exists for the PR's actual head diff, verified offline against a pinned keyring.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coderifts/contract-gate.git"
+  },
   "type": "commonjs",
   "engines": {
     "node": ">=18"
