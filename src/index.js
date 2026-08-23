@@ -11,6 +11,10 @@
  *   5. pass IFF verified AND execution_action in {CONTINUE, CONTINUE_WITH_MONITORING}
  *      AND every expectedContext slot matches the envelope (missing ≠ match)
  *   6. post the "CodeRifts / contract-gate" Check Run (success only on pass)
+ *
+ * CWM honesty: CONTINUE_WITH_MONITORING passes at step 5. Its monitoring sink is a HOST CLAIM —
+ * this gate does not verify delivery. Consumers who require verified monitoring gate on CONTINUE
+ * only (or add a second required check that asserts the sink).
  */
 
 const path = require('node:path');

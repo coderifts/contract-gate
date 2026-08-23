@@ -7,6 +7,10 @@
  * (CONTINUE / CONTINUE_WITH_MONITORING) AND whose signed envelope slots match expectedContext
  * (current PR identity). Semantics = "signed ALLOW for this exact change set AND this exact
  * head/base/repo/operation", never "breaking == 0".
+ *
+ * CWM honesty: CONTINUE_WITH_MONITORING passes here. Its monitoring sink is a HOST CLAIM — this
+ * gate does not verify delivery. Consumers who require verified monitoring gate on CONTINUE only
+ * (or add a second required check that asserts the sink); do not read CWM as proven monitoring.
  */
 
 const { verifyReceipt } = require('./verify');
