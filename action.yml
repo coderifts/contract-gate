@@ -1,5 +1,5 @@
 name: 'CodeRifts Contract Gate'
-description: 'Block a merge unless a valid signed ALLOW receipt exists for the PR''s actual head diff (offline-verified against a pinned keyring).'
+description: 'Block a merge unless a valid signed ALLOW receipt exists for the PR''s actual head diff (offline-verified against a pinned keyring). CONTINUE_WITH_MONITORING passes; its monitoring sink is a host claim the gate does not verify — gate on CONTINUE only if you require verified monitoring.'
 author: 'CodeRifts'
 branding:
   icon: 'lock'
