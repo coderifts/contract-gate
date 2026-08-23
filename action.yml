@@ -1,5 +1,5 @@
 name: 'CodeRifts Contract Gate'
-description: 'Blocks a merge unless a signed ALLOW receipt verifies offline against a pinned keyring for the PR''s actual head diff. CONTINUE_WITH_MONITORING also passes; its monitoring sink is an unverified host claim.'
+description: 'Blocks a merge unless a signed ALLOW receipt verifies offline against a pinned keyring for the PR''s actual head diff. CONTINUE_WITH_MONITORING also passes; its monitoring sink is an unverified host claim. The guard side now records measured delivery evidence (monitoring_delivery tri-state, guard >=8.4.0); the gate''s passing set is unchanged.'
 author: 'CodeRifts'
 branding:
   icon: 'lock'

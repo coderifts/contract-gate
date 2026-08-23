@@ -9,8 +9,10 @@
  * head/base/repo/operation", never "breaking == 0".
  *
  * CWM honesty: CONTINUE_WITH_MONITORING passes here. Its monitoring sink is a HOST CLAIM — this
- * gate does not verify delivery. Consumers who require verified monitoring gate on CONTINUE only
- * (or add a second required check that asserts the sink); do not read CWM as proven monitoring.
+ * gate does not verify delivery. The guard side now records measured delivery evidence
+ * (monitoring_delivery tri-state, guard >=8.4.0); the gate's passing set is unchanged.
+ * Consumers who require verified monitoring gate on CONTINUE only (or add a second required
+ * check that asserts the sink); do not read CWM as proven monitoring.
  */
 
 const { verifyReceipt } = require('./verify');

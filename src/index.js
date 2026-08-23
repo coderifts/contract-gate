@@ -13,8 +13,10 @@
  *   6. post the "CodeRifts / contract-gate" Check Run (success only on pass)
  *
  * CWM honesty: CONTINUE_WITH_MONITORING passes at step 5. Its monitoring sink is a HOST CLAIM —
- * this gate does not verify delivery. Consumers who require verified monitoring gate on CONTINUE
- * only (or add a second required check that asserts the sink).
+ * this gate does not verify delivery. The guard side now records measured delivery evidence
+ * (monitoring_delivery tri-state, guard >=8.4.0); the gate's passing set is unchanged.
+ * Consumers who require verified monitoring gate on CONTINUE only (or add a second required
+ * check that asserts the sink).
  */
 
 const path = require('node:path');
