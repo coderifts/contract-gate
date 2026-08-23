@@ -116,6 +116,34 @@ test('FAIL-CLOSED: expired v4 receipt', async () => {
   assert.equal(g.receiptStatus, 'VERIFIED_EXPIRED');
 });
 
+// ── ID104 clock-skew leeway (30s), verification-only ─────────────────────────
+// The gate's vendored verifier mirrors the public receipt-verifier predicate:
+// `exp + CLOCK_SKEW_LEEWAY_MS < now` is expired; equality is CURRENT. A receipt that
+// died seconds ago must not fail a merge on the runner's clock drift alone.
+// Context-bound envelopes so the ONLY variable under test is freshness.
+
+async function evalBoundWithExpiry(expiresAtIso) {
+  const env = boundEnvelope({ execution_action: 'CONTINUE', decision: 'ALLOW' });
+  return evaluateGate({
+    preflightResponse: preflight(env, mintV4(signer, env, { expires_at: expiresAtIso })),
+    keyring: await keyring(),
+    headSha: CTX.head,
+    expectedContext: CTX,
+  });
+}
+
+test('leeway: expires_at 10s in the past still passes gate freshness (within 30s skew)', async () => {
+  const g = await evalBoundWithExpiry(new Date(Date.now() - 10_000).toISOString());
+  assert.equal(g.receiptStatus, 'VERIFIED_CURRENT');
+  assert.equal(g.pass, true);
+});
+
+test('leeway: expires_at 40s in the past is refused (beyond 30s skew)', async () => {
+  const g = await evalBoundWithExpiry(new Date(Date.now() - 40_000).toISOString());
+  assert.equal(g.receiptStatus, 'VERIFIED_EXPIRED');
+  assert.equal(g.pass, false);
+});
+
 test('FAIL-CLOSED: missing receipt / missing decision_result', async () => {
   const env = envelope();
   assert.equal(evaluateGate({ preflightResponse: { decision_result: env }, keyring: await keyring() }).reason, 'missing_receipt');

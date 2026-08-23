@@ -30,6 +30,23 @@ const fs = require('node:fs');
 const DEFAULT_FETCH_URL = 'https://app.coderifts.com/api/v1/attestation/public-key';
 const SIGNING_PREFIX = 'crchain.v1';
 const MAX_SUPPORTED_V = 4;
+/** ID104 — verification expiry leeway (ms). `exp + leeway < now` → VERIFIED_EXPIRED. */
+const CLOCK_SKEW_LEEWAY_MS = 30_000;
+
+/**
+ * 0s grace only when context DECLARES destructive AND production. This vendored gate copy
+ * has no `destructive` / `operation_class` input — never guess from operation labels — so
+ * the leeway is constant here, matching the public verifier.
+ */
+function expiryLeewayMs(_context) {
+  return CLOCK_SKEW_LEEWAY_MS;
+}
+
+/** Verification-only: equality is CURRENT; only exp + leeway strictly before now is expired. */
+function isExpiredAt(expiresAtMs, nowMs, context) {
+  if (!Number.isFinite(expiresAtMs) || !Number.isFinite(nowMs)) return false;
+  return (expiresAtMs + expiryLeewayMs(context)) < nowMs;
+}
 
 // Signed fields per the max version — the anti-downgrade delimiter guard rejects any that contain '|'.
 const SIGNED_FIELDS = ['kid', 'fp', 'prev', 'caller', 'ts', 'reg', 'ir', 'expires_at', 'bh'];
@@ -101,7 +118,7 @@ function resolveEntry(ctx, payload) {
  * Derive the 12-status taxonomy verdict for an already-signature-valid receipt.
  *   RETIRED_KEY_VALID_AT_ISSUE — retired key, receipt ts predates retired_at (else INVALID_SIGNATURE).
  *   UNSUPPORTED_VERSION        — payload.v beyond MAX_SUPPORTED_V.
- *   VERIFIED_EXPIRED           — v4 receipt whose signed expires_at is in the past.
+ *   VERIFIED_EXPIRED           — v4 receipt whose signed expires_at + 30s leeway is in the past.
  *   VERIFIED_WRONG_AUDIENCE / _WRONG_ENVIRONMENT — dormant: only when --envelope carries the field
  *                                AND a check input (--audience/--environment) is supplied.
  *   VERIFIED_SUPERSEDED / _SCOPE_MISMATCH — dormant: no check input defined this round.
@@ -119,7 +136,7 @@ function deriveStatus(payload, entry, opts) {
   const now = opts.now != null ? opts.now : Date.now();
   if (payload.v === 4 && typeof payload.expires_at === 'string') {
     const exp = Date.parse(payload.expires_at);
-    if (Number.isFinite(exp) && exp < now) return 'VERIFIED_EXPIRED';
+    if (isExpiredAt(exp, now, opts.context)) return 'VERIFIED_EXPIRED';
   }
   if (opts.envelope) {
     const env = opts.envelope;
@@ -390,6 +407,9 @@ module.exports = {
   SIGNING_PREFIX,
   MAX_SUPPORTED_V,
   SIGNED_FIELDS,
+  CLOCK_SKEW_LEEWAY_MS,
+  expiryLeewayMs,
+  isExpiredAt,
 };
 
 // CLI entry — runs ONLY when invoked as a script (node verify.js …), never on require().
