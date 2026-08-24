@@ -1,5 +1,5 @@
 name: 'CodeRifts Contract Gate'
-description: 'Blocks a merge unless a signed ALLOW receipt verifies offline against a pinned keyring for the PR''s actual head diff. CONTINUE_WITH_MONITORING also passes; its monitoring sink is an unverified host claim. The guard side now records measured delivery evidence (monitoring_delivery tri-state, guard >=8.4.0); the gate''s passing set is unchanged.'
+description: 'Blocks a merge unless a signed ALLOW receipt verifies offline against a pinned keyring for the PR''s actual head diff. With require_verified_monitoring: true the gate blocks CWM without delivery evidence; by default it passes CWM on the host''s claim.'
 author: 'CodeRifts'
 branding:
   icon: 'lock'
@@ -17,6 +17,14 @@ inputs:
     description: 'Token with checks:write to post the "CodeRifts / contract-gate" Check Run.'
     required: false
     default: ${{ github.token }}
+  require-verified-monitoring:
+    description: 'When true, CONTINUE_WITH_MONITORING passes only if monitoring-delivery evidence is delivered_acked. Default false (existing consumers unchanged). Flipping the default is a later, evidence-gated decision.'
+    required: false
+    default: 'false'
+  monitoring-delivery:
+    description: 'Optional JSON Guard monitoring_delivery observation ({"status":"delivered_acked"|"sent_unacked"|"not_delivered"}). Used only when require-verified-monitoring is true. Not in the receipt/crbundle; not a keyring-verified attestation (that artifact does not exist yet).'
+    required: false
+    default: ''
 
 # The receipt is ALWAYS verified offline against the keyring pinned in this action
 # (keyring/pinned-keys.json). The gate NEVER fetches the verification key from the server it is

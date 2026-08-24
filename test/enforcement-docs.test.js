@@ -49,3 +49,20 @@ test('SECURITY.md documents the admin-override residual + pinned kid', () => {
   assert.match(s, /enforce_admins/);
   assert.ok(s.includes('2026-07-k1'), 'must state the pinned kid');
 });
+
+test('CWM honesty sentence is on the five teaching sites + action.yml', () => {
+  const sites = [
+    'src/gate.js',
+    'src/index.js',
+    'README.md',
+    'SECURITY.md',
+    'LISTING.md',
+    'action.yml',
+  ];
+  for (const p of sites) {
+    const body = read(p);
+    assert.match(body, /require_verified_monitoring:\s*true/, `${p} names the flag`);
+    assert.match(body, /blocks CWM without delivery/, `${p} names the true-path`);
+    assert.match(body, /by default it passes CWM on the host/, `${p} names the default`);
+  }
+});

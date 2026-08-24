@@ -12,11 +12,10 @@
  *      AND every expectedContext slot matches the envelope (missing ≠ match)
  *   6. post the "CodeRifts / contract-gate" Check Run (success only on pass)
  *
- * CWM honesty: CONTINUE_WITH_MONITORING passes at step 5. Its monitoring sink is a HOST CLAIM —
- * this gate does not verify delivery. The guard side now records measured delivery evidence
- * (monitoring_delivery tri-state, guard >=8.4.0); the gate's passing set is unchanged.
- * Consumers who require verified monitoring gate on CONTINUE only (or add a second required
- * check that asserts the sink).
+ * CWM honesty: with require_verified_monitoring: true the gate blocks CWM without delivery
+ * evidence; by default it passes CWM on the host's claim. The guard side records measured
+ * delivery evidence (monitoring_delivery tri-state, guard >=8.4.0). That observation is not
+ * in the receipt/crbundle — pass it as monitoring_delivery when requiring verification.
  */
 
 const path = require('node:path');
@@ -48,6 +47,26 @@ function readEvent(eventPath) {
  *
  * @returns {Promise<{exitCode:number, gate:object, artifactCount:number}>}
  */
+function parseBoolInput(v, fallback = false) {
+  if (v == null || v === '') return fallback;
+  const s = String(v).trim().toLowerCase();
+  if (s === 'true' || s === '1' || s === 'yes') return true;
+  if (s === 'false' || s === '0' || s === 'no') return false;
+  return fallback;
+}
+
+function parseMonitoringDelivery(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'object') return v;
+  if (typeof v !== 'string') return null;
+  try {
+    const parsed = JSON.parse(v);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 async function runGate({
   apiKey, apiUrl, githubToken, owner, repo, baseSha, headSha, cwd,
   keyringPath = PINNED_KEYRING_PATH,
@@ -56,6 +75,8 @@ async function runGate({
   postCheckRunImpl = postCheckRun,
   fetchImpl,
   log = console.error,
+  requireVerifiedMonitoring = false,
+  monitoringDelivery = null,
 }) {
   const emitCheck = async (conclusion, title, summary) => {
     if (!githubToken || !owner || !repo || !headSha) { log(`[check skipped] ${conclusion}: ${title}`); return; }
@@ -110,7 +131,11 @@ async function runGate({
       base: context.base,
       head: context.head,
     };
-    const gate = evaluateGate({ preflightResponse, keyring, headSha, expectedContext });
+    const gate = evaluateGate({
+      preflightResponse, keyring, headSha, expectedContext,
+      require_verified_monitoring: requireVerifiedMonitoring === true,
+      monitoring_delivery: monitoringDelivery,
+    });
 
     // 6. post the stable check run.
     const title = gate.pass ? 'Signed ALLOW verified for this diff' : 'Blocked — no verified ALLOW for this diff';
@@ -133,6 +158,8 @@ async function main() {
     githubToken: process.env['INPUT_GITHUB-TOKEN'] || process.env.GITHUB_TOKEN,
     owner: ev.owner, repo: ev.repo, baseSha: ev.baseSha, headSha: ev.headSha,
     cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
+    requireVerifiedMonitoring: parseBoolInput(process.env['INPUT_REQUIRE-VERIFIED-MONITORING'], false),
+    monitoringDelivery: parseMonitoringDelivery(process.env['INPUT_MONITORING-DELIVERY']),
   });
   process.exit(res.exitCode);
 }

@@ -13,7 +13,7 @@ A GitHub Action that **blocks a merge unless a valid signed ALLOW receipt exists
 5. **Passes iff** the receipt verifies **and** `execution_action` is `CONTINUE` or `CONTINUE_WITH_MONITORING`. Fails on `BLOCK`, `REQUIRE_APPROVAL`, unverified/missing/tampered/expired/unknown-key. Semantics = *"signed ALLOW for this exact diff"*, not *"breaking == 0"*.
 6. **Posts a Check Run** named **`CodeRifts / contract-gate`** (stable) — `success` only on pass. Mark it a required status check in branch protection to make merges unbypassable.
 
-> **CWM honesty.** `CONTINUE_WITH_MONITORING` passes the merge gate. The monitoring sink is a **host claim** — the gate does not verify delivery. The guard side now records measured delivery evidence (`monitoring_delivery` tri-state, guard ≥8.4.0); the gate's passing set is unchanged. If you require verified monitoring, treat CWM as non-passing in your branch-protection policy (require a second check that asserts the sink, or gate on `CONTINUE` only).
+> **CWM honesty.** With `require_verified_monitoring: true` the gate blocks CWM without delivery evidence; by default it passes CWM on the host's claim. The guard side records measured `monitoring_delivery` (tri-state, guard ≥8.4.0). That observation is not in the receipt/crbundle — pass it as the `monitoring-delivery` input when requiring verification. A signed monitoring-delivery attestation in the artifact chain does not exist yet.
 
 ## Making it block merges (not just advise)
 

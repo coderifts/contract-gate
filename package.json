@@ -1,6 +1,6 @@
 {
   "name": "@coderifts/contract-gate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "GitHub Action that blocks a merge unless a valid signed ALLOW receipt exists for the PR's actual head diff, verified offline against a pinned keyring.",
   "license": "MIT",

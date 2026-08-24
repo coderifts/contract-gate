@@ -8,11 +8,10 @@
  * (current PR identity). Semantics = "signed ALLOW for this exact change set AND this exact
  * head/base/repo/operation", never "breaking == 0".
  *
- * CWM honesty: CONTINUE_WITH_MONITORING passes here. Its monitoring sink is a HOST CLAIM — this
- * gate does not verify delivery. The guard side now records measured delivery evidence
- * (monitoring_delivery tri-state, guard >=8.4.0); the gate's passing set is unchanged.
- * Consumers who require verified monitoring gate on CONTINUE only (or add a second required
- * check that asserts the sink); do not read CWM as proven monitoring.
+ * CWM honesty: with require_verified_monitoring: true the gate blocks CWM without delivery
+ * evidence; by default it passes CWM on the host's claim. The guard side records measured
+ * delivery evidence (monitoring_delivery tri-state, guard >=8.4.0). That observation is not
+ * in the receipt/crbundle — pass it as monitoring_delivery when requiring verification.
  */
 
 const { verifyReceipt } = require('./verify');
@@ -49,12 +48,21 @@ function mismatchReason(envelope, expected, envelopeKey, expectedKey, reason) {
  * @param {Map} o.keyring               pinned keyring (kid -> { publicKey, status, retired_at })
  * @param {string} [o.headSha]          current PR head SHA (check output; same as expectedContext.head)
  * @param {object} [o.expectedContext]  current PR identity from runGate: { operation, repository, base, head }
+ * @param {boolean} [o.require_verified_monitoring=false]  when true, CWM passes only with
+ *   monitoring_delivery.status === 'delivered_acked'. Default false — existing consumers unchanged.
+ * @param {object} [o.monitoring_delivery]  reachable delivery evidence (guard observation JSON).
+ *   Not present on the receipt/crbundle; the gate cannot mint or keyring-verify a signed
+ *   monitoring-delivery attestation (that artifact does not exist yet).
  * @param {number} [o.now]              clock override (tests)
  * @returns {{ pass:boolean, conclusion:'success'|'failure', reason:string,
  *             decision:(string|null), executionAction:(string|null), receiptStatus:(string|null),
  *             headSha:(string|null), summary:string }}
  */
-function evaluateGate({ preflightResponse, keyring, headSha = null, expectedContext = null, now }) {
+function evaluateGate({
+  preflightResponse, keyring, headSha = null, expectedContext = null, now,
+  require_verified_monitoring = false,
+  monitoring_delivery = null,
+}) {
   const fail = (reason, extra = {}) => ({
     pass: false, conclusion: 'failure', reason,
     decision: extra.decision ?? null, executionAction: extra.executionAction ?? null,
@@ -89,6 +97,20 @@ function evaluateGate({ preflightResponse, keyring, headSha = null, expectedCont
   if (!executionAction || !PASSING_ACTIONS.has(executionAction)) {
     return fail('decision_not_allow', { receiptStatus: result.status, decision, executionAction });
   }
+  if (require_verified_monitoring === true && executionAction === 'CONTINUE_WITH_MONITORING') {
+    const status = monitoring_delivery && typeof monitoring_delivery === 'object'
+      ? monitoring_delivery.status
+      : null;
+    if (status !== 'delivered_acked') {
+      const what = status
+        ? `monitoring_delivery.status is ${status} (need delivered_acked)`
+        : 'no delivery evidence was supplied';
+      return fail('monitoring_not_verified', {
+        receiptStatus: result.status, decision, executionAction,
+        why: `${what}. Provide monitoring_delivery.status === "delivered_acked" (guard ≥8.4.0 observation). The receipt/crbundle does not carry a signed monitoring-delivery attestation.`,
+      });
+    }
+  }
 
   // P0-1: rebind the signed envelope to the CURRENT PR identity. Missing expectedContext or any
   // unbound/mismatched slot is not permission. Envelope slots are ID686 top-level fields covered
@@ -114,7 +136,7 @@ function evaluateGate({ preflightResponse, keyring, headSha = null, expectedCont
   };
 }
 
-function buildSummary({ pass, reason, decision, executionAction, receiptStatus, headSha }) {
+function buildSummary({ pass, reason, decision, executionAction, receiptStatus, headSha, why }) {
   const lines = [
     pass ? '✅ **CodeRifts contract-gate: PASS**' : '❌ **CodeRifts contract-gate: FAIL** (merge blocked)',
     '',
@@ -122,6 +144,7 @@ function buildSummary({ pass, reason, decision, executionAction, receiptStatus, 
     `- decision: \`${decision ?? 'n/a'}\` (execution_action: \`${executionAction ?? 'n/a'}\`)`,
     `- receipt status: \`${receiptStatus ?? 'n/a'}\``,
     `- head commit: \`${headSha ?? 'n/a'}\``,
+    ...(why ? ['', `- why: ${why}`] : []),
     '',
     pass
       ? 'A valid signed ALLOW receipt was verified **offline against the pinned keyring** for the exact head diff.'
