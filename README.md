@@ -13,7 +13,7 @@ A GitHub Action that **blocks a merge unless a valid signed ALLOW receipt exists
 5. **Passes iff** the receipt verifies **and** `execution_action` is `CONTINUE` or `CONTINUE_WITH_MONITORING`. Fails on `BLOCK`, `REQUIRE_APPROVAL`, unverified/missing/tampered/expired/unknown-key. Semantics = *"signed ALLOW for this exact diff"*, not *"breaking == 0"*.
 6. **Posts a Check Run** named **`CodeRifts / contract-gate`** (stable) — `success` only on pass. Mark it a required status check in branch protection to make merges unbypassable.
 
-> **CWM honesty.** With `require_verified_monitoring: true` the gate blocks CWM without delivery evidence; by default it passes CWM on the host's claim. The guard side records measured `monitoring_delivery` (tri-state, guard ≥8.4.0). That observation is not in the receipt/crbundle — pass it as the `monitoring-delivery` input when requiring verification. A signed monitoring-delivery attestation in the artifact chain does not exist yet.
+> **CWM honesty.** With `require_verified_monitoring: true` the gate verifies a `cr.monitor.attest.v1` token offline against a pinned monitoring keyring (CWM passes only on `delivered_acked`); by default it passes CWM on the host's claim. The token proves a monitoring-key holder observed the delivery — not that a human read it, not that the sink targets the right audience. Unsigned JSON is not accepted under the flag.
 
 ## Making it block merges (not just advise)
 
@@ -40,6 +40,10 @@ jobs:
       - uses: coderifts/contract-gate@v0
         with:
           api-key: ${{ secrets.CODERIFTS_API_KEY }}
+          # Optional: require a signed monitoring-delivery attestation on CWM
+          # require-verified-monitoring: 'true'
+          # monitoring-attestation: ${{ vars.CODERIFTS_MONITORING_ATTESTATION }}
+          # monitoring-keyring: ${{ github.workspace }}/.coderifts/monitoring-keys.json
 ```
 
 ## Trust model — pinned keyring

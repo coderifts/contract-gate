@@ -8,13 +8,18 @@
  * (current PR identity). Semantics = "signed ALLOW for this exact change set AND this exact
  * head/base/repo/operation", never "breaking == 0".
  *
- * CWM honesty: with require_verified_monitoring: true the gate blocks CWM without delivery
- * evidence; by default it passes CWM on the host's claim. The guard side records measured
- * delivery evidence (monitoring_delivery tri-state, guard >=8.4.0). That observation is not
- * in the receipt/crbundle — pass it as monitoring_delivery when requiring verification.
+ * CWM honesty: with require_verified_monitoring: true the gate verifies a cr.monitor.attest.v1
+ * token offline against a pinned monitoring keyring (CWM passes only on delivered_acked);
+ * by default it passes CWM on the host's claim. The token proves a monitoring-key holder
+ * observed the delivery — not that a human read it, not that the sink targets the right audience.
  */
 
 const { verifyReceipt } = require('./verify');
+const {
+  verifyMonitoringAttestation,
+  receiptDigest,
+  STATUSES: MON_STATUSES,
+} = require('./monitoring-attestation');
 
 // Execution actions that permit a merge. STOP (BLOCK) and REQUEST_APPROVAL (REQUIRE_APPROVAL) do not.
 const PASSING_ACTIONS = new Set(['CONTINUE', 'CONTINUE_WITH_MONITORING']);
@@ -48,11 +53,11 @@ function mismatchReason(envelope, expected, envelopeKey, expectedKey, reason) {
  * @param {Map} o.keyring               pinned keyring (kid -> { publicKey, status, retired_at })
  * @param {string} [o.headSha]          current PR head SHA (check output; same as expectedContext.head)
  * @param {object} [o.expectedContext]  current PR identity from runGate: { operation, repository, base, head }
- * @param {boolean} [o.require_verified_monitoring=false]  when true, CWM passes only with
- *   monitoring_delivery.status === 'delivered_acked'. Default false — existing consumers unchanged.
- * @param {object} [o.monitoring_delivery]  reachable delivery evidence (guard observation JSON).
- *   Not present on the receipt/crbundle; the gate cannot mint or keyring-verify a signed
- *   monitoring-delivery attestation (that artifact does not exist yet).
+ * @param {boolean} [o.require_verified_monitoring=false]  when true, CWM requires a
+ *   cr.monitor.attest.v1 token verified offline. Default false — existing consumers unchanged.
+ *   Unsigned JSON is NOT accepted under the flag (no silent fallback).
+ * @param {string} [o.monitoring_attestation]  cr.monitor.attest.v1 token string
+ * @param {object} [o.monitoring_keyring]  { keys: [...] } local registry document
  * @param {number} [o.now]              clock override (tests)
  * @returns {{ pass:boolean, conclusion:'success'|'failure', reason:string,
  *             decision:(string|null), executionAction:(string|null), receiptStatus:(string|null),
@@ -61,7 +66,8 @@ function mismatchReason(envelope, expected, envelopeKey, expectedKey, reason) {
 function evaluateGate({
   preflightResponse, keyring, headSha = null, expectedContext = null, now,
   require_verified_monitoring = false,
-  monitoring_delivery = null,
+  monitoring_attestation = null,
+  monitoring_keyring = null,
 }) {
   const fail = (reason, extra = {}) => ({
     pass: false, conclusion: 'failure', reason,
@@ -98,16 +104,48 @@ function evaluateGate({
     return fail('decision_not_allow', { receiptStatus: result.status, decision, executionAction });
   }
   if (require_verified_monitoring === true && executionAction === 'CONTINUE_WITH_MONITORING') {
-    const status = monitoring_delivery && typeof monitoring_delivery === 'object'
-      ? monitoring_delivery.status
-      : null;
-    if (status !== 'delivered_acked') {
-      const what = status
-        ? `monitoring_delivery.status is ${status} (need delivered_acked)`
-        : 'no delivery evidence was supplied';
+    const tokenStr = typeof monitoring_attestation === 'string' ? monitoring_attestation.trim() : '';
+    if (!tokenStr) {
+      return fail('monitoring_attestation_missing', {
+        receiptStatus: result.status, decision, executionAction,
+        why: 'require_verified_monitoring is true and execution_action is CONTINUE_WITH_MONITORING but no monitoring-attestation token was supplied. Unsigned JSON is not accepted.',
+      });
+    }
+    if (!monitoring_keyring || typeof monitoring_keyring !== 'object') {
+      return fail('monitoring_keyring_missing', {
+        receiptStatus: result.status, decision, executionAction,
+        why: 'monitoring-attestation was supplied but no local monitoring-keyring document was provided (no network fetch).',
+      });
+    }
+    const decisionId = typeof envelope.decision_id === 'string' ? envelope.decision_id : '';
+    const intendedDigest = receiptDigest(token);
+    const mon = verifyMonitoringAttestation(tokenStr, {
+      registry: monitoring_keyring,
+      intended: { decision_id: decisionId, receipt_digest: intendedDigest },
+      now,
+    });
+    const okStatus = mon.status === MON_STATUSES.MON_ATTEST_VALID
+      || mon.status === MON_STATUSES.MON_ATTEST_RETIRED_KEY_VALID_AT_ISSUE;
+    if (!okStatus) {
+      const reasonByStatus = {
+        [MON_STATUSES.MON_ATTEST_INVALID_SIGNATURE]: 'monitoring_attest_invalid_signature',
+        [MON_STATUSES.MON_ATTEST_UNKNOWN_KEY]: 'monitoring_attest_unknown_key',
+        [MON_STATUSES.MON_ATTEST_MALFORMED]: 'monitoring_attest_malformed',
+        [MON_STATUSES.MON_ATTEST_UNBOUND]: 'monitoring_attest_unbound',
+      };
+      const reason = reasonByStatus[mon.status] || 'monitoring_not_verified';
+      return fail(reason, {
+        receiptStatus: result.status, decision, executionAction,
+        why: `monitoring attestation failed: status ${mon.status}`
+          + (mon.reason ? ` (${mon.reason})` : '')
+          + '. Need MON_ATTEST_VALID or MON_ATTEST_RETIRED_KEY_VALID_AT_ISSUE, cross-checked against this envelope decision_id and sha256(chain_receipt).',
+      });
+    }
+    const deliveryStatus = mon.payload && mon.payload.delivery_status;
+    if (deliveryStatus !== 'delivered_acked') {
       return fail('monitoring_not_verified', {
         receiptStatus: result.status, decision, executionAction,
-        why: `${what}. Provide monitoring_delivery.status === "delivered_acked" (guard ≥8.4.0 observation). The receipt/crbundle does not carry a signed monitoring-delivery attestation.`,
+        why: `monitoring attestation verified (${mon.status}) but delivery_status is ${deliveryStatus || 'missing'} (need delivered_acked).`,
       });
     }
   }

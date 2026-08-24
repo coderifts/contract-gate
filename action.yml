@@ -1,5 +1,5 @@
 name: 'CodeRifts Contract Gate'
-description: 'Blocks a merge unless a signed ALLOW receipt verifies offline against a pinned keyring for the PR''s actual head diff. With require_verified_monitoring: true the gate blocks CWM without delivery evidence; by default it passes CWM on the host''s claim.'
+description: 'Blocks a merge unless a signed ALLOW receipt verifies offline against a pinned keyring for the PR''s actual head diff. With require_verified_monitoring: true the gate verifies a cr.monitor.attest.v1 token offline against a pinned monitoring keyring (CWM passes only on delivered_acked); by default it passes CWM on the host''s claim.'
 author: 'CodeRifts'
 branding:
   icon: 'lock'
@@ -18,11 +18,15 @@ inputs:
     required: false
     default: ${{ github.token }}
   require-verified-monitoring:
-    description: 'When true, CONTINUE_WITH_MONITORING passes only if monitoring-delivery evidence is delivered_acked. Default false (existing consumers unchanged). Flipping the default is a later, evidence-gated decision.'
+    description: 'When true, CONTINUE_WITH_MONITORING passes only if a cr.monitor.attest.v1 token verifies offline (MON_ATTEST_VALID or retired-in-window) AND delivery_status is delivered_acked. Unsigned JSON is not accepted. Default false (existing consumers unchanged).'
     required: false
     default: 'false'
-  monitoring-delivery:
-    description: 'Optional JSON Guard monitoring_delivery observation ({"status":"delivered_acked"|"sent_unacked"|"not_delivered"}). Used only when require-verified-monitoring is true. Not in the receipt/crbundle; not a keyring-verified attestation (that artifact does not exist yet).'
+  monitoring-attestation:
+    description: 'cr.monitor.attest.v1 token string (guard 9.2.0+ outcome.monitoring_attestation). Required when require-verified-monitoring is true and the decision is CWM. No network fetch.'
+    required: false
+    default: ''
+  monitoring-keyring:
+    description: 'Local JSON file path for the customer-pinned monitoring-key registry ({ keys: [{ kid, public_key_pem, status, valid_from, retired_at }] }). Same shape as the receipt keyring / .well-known/coderifts-keys.json. Local file only — no fetch.'
     required: false
     default: ''
 

@@ -12,10 +12,10 @@
  *      AND every expectedContext slot matches the envelope (missing ≠ match)
  *   6. post the "CodeRifts / contract-gate" Check Run (success only on pass)
  *
- * CWM honesty: with require_verified_monitoring: true the gate blocks CWM without delivery
- * evidence; by default it passes CWM on the host's claim. The guard side records measured
- * delivery evidence (monitoring_delivery tri-state, guard >=8.4.0). That observation is not
- * in the receipt/crbundle — pass it as monitoring_delivery when requiring verification.
+ * CWM honesty: with require_verified_monitoring: true the gate verifies a cr.monitor.attest.v1
+ * token offline against a pinned monitoring keyring (CWM passes only on delivered_acked);
+ * by default it passes CWM on the host's claim. The token proves a monitoring-key holder
+ * observed the delivery — not that a human read it, not that the sink targets the right audience.
  */
 
 const path = require('node:path');
@@ -26,6 +26,7 @@ const { callPreflight } = require('./preflight');
 const { evaluateGate, buildSummary } = require('./gate');
 const { postCheckRun, CHECK_NAME } = require('./check-run');
 const { loadKeyring } = require('./verify');
+const { loadMonitoringKeyring } = require('./monitoring-attestation');
 
 const PINNED_KEYRING_PATH = path.join(__dirname, '..', 'keyring', 'pinned-keys.json');
 
@@ -55,18 +56,6 @@ function parseBoolInput(v, fallback = false) {
   return fallback;
 }
 
-function parseMonitoringDelivery(v) {
-  if (v == null || v === '') return null;
-  if (typeof v === 'object') return v;
-  if (typeof v !== 'string') return null;
-  try {
-    const parsed = JSON.parse(v);
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 async function runGate({
   apiKey, apiUrl, githubToken, owner, repo, baseSha, headSha, cwd,
   keyringPath = PINNED_KEYRING_PATH,
@@ -76,7 +65,8 @@ async function runGate({
   fetchImpl,
   log = console.error,
   requireVerifiedMonitoring = false,
-  monitoringDelivery = null,
+  monitoringAttestation = null,
+  monitoringKeyringPath = null,
 }) {
   const emitCheck = async (conclusion, title, summary) => {
     if (!githubToken || !owner || !repo || !headSha) { log(`[check skipped] ${conclusion}: ${title}`); return; }
@@ -131,10 +121,15 @@ async function runGate({
       base: context.base,
       head: context.head,
     };
+    let monitoringKeyring = null;
+    if (monitoringKeyringPath) {
+      monitoringKeyring = loadMonitoringKeyring(monitoringKeyringPath);
+    }
     const gate = evaluateGate({
       preflightResponse, keyring, headSha, expectedContext,
       require_verified_monitoring: requireVerifiedMonitoring === true,
-      monitoring_delivery: monitoringDelivery,
+      monitoring_attestation: monitoringAttestation,
+      monitoring_keyring: monitoringKeyring,
     });
 
     // 6. post the stable check run.
@@ -159,7 +154,8 @@ async function main() {
     owner: ev.owner, repo: ev.repo, baseSha: ev.baseSha, headSha: ev.headSha,
     cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
     requireVerifiedMonitoring: parseBoolInput(process.env['INPUT_REQUIRE-VERIFIED-MONITORING'], false),
-    monitoringDelivery: parseMonitoringDelivery(process.env['INPUT_MONITORING-DELIVERY']),
+    monitoringAttestation: process.env['INPUT_MONITORING-ATTESTATION'] || null,
+    monitoringKeyringPath: process.env['INPUT_MONITORING-KEYRING'] || null,
   });
   process.exit(res.exitCode);
 }

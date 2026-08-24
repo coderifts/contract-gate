@@ -31,3 +31,10 @@ jobs:
         with:
           api-key: ${{ secrets.CODERIFTS_API_KEY }}
           # api-url: https://app.coderifts.com   # override only for self-hosted
+          #
+          # Optional — require a signed CWM delivery attestation (guard ≥9.2.0).
+          # The host signs with a customer-held monitoring key; this action
+          # verifies the token OFFLINE against a local keyring file (no fetch).
+          # require-verified-monitoring: 'true'
+          # monitoring-attestation: ${{ vars.CODERIFTS_MONITORING_ATTESTATION }}
+          # monitoring-keyring: ${{ github.workspace }}/.coderifts/monitoring-keys.json

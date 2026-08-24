@@ -11,7 +11,7 @@ verifies itself, and that branch protection makes non-optional.
 | The decision covers the **real** merge candidate, not a substituted clean spec | Artifacts derived from `git diff base...head` in the runner — never caller input (Gap-5) |
 | The approval is **authentic** (issued by CodeRifts, not forged) | Ed25519 signature verified **offline** against the **pinned keyring** (`keyring/pinned-keys.json`), never a key fetched from the server under test |
 | The approval is **for this exact change set** | v4 receipt `body_hash` binding — the receipt is bound to the specific decision envelope built from the diff |
-| The approval is an **ALLOW**, not just "few breaking changes" | Pass requires `execution_action ∈ {CONTINUE, CONTINUE_WITH_MONITORING}`. With `require_verified_monitoring: true` the gate blocks CWM without delivery evidence; by default it passes CWM on the host's claim. |
+| The approval is an **ALLOW**, not just "few breaking changes" | Pass requires `execution_action ∈ {CONTINUE, CONTINUE_WITH_MONITORING}`. With `require_verified_monitoring: true` the gate verifies a `cr.monitor.attest.v1` token offline against a pinned monitoring keyring (CWM passes only on `delivered_acked`); by default it passes CWM on the host's claim. The token proves a monitoring-key holder observed the delivery — not that a human read it, not that the sink targets the right audience. |
 | The proof is **unbypassable at merge** | GitHub branch protection: `CodeRifts / contract-gate` as a **required** status check |
 
 The first four are enforced by the action itself (fail-closed). **The last one is what makes it

@@ -62,7 +62,8 @@ test('CWM honesty sentence is on the five teaching sites + action.yml', () => {
   for (const p of sites) {
     const body = read(p);
     assert.match(body, /require_verified_monitoring:\s*true/, `${p} names the flag`);
-    assert.match(body, /blocks CWM without delivery/, `${p} names the true-path`);
+    assert.match(body, /cr\.monitor\.attest\.v1/, `${p} names the token`);
+    assert.match(body, /verifies/, `${p} names offline verify`);
     assert.match(body, /by default it passes CWM on the host/, `${p} names the default`);
   }
 });

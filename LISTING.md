@@ -24,15 +24,18 @@ CodeRifts Contract Gate
 ## Tagline (action.yml `description`, shown on the card)
 
 > Blocks a merge unless a signed ALLOW receipt verifies offline against a pinned keyring for
-> the PR's actual head diff. With require_verified_monitoring: true the gate blocks CWM without
-> delivery evidence; by default it passes CWM on the host's claim.
+> the PR's actual head diff. With require_verified_monitoring: true the gate verifies a
+> cr.monitor.attest.v1 token offline against a pinned monitoring keyring (CWM passes only on
+> delivered_acked); by default it passes CWM on the host's claim.
 
 ## What NOT to claim
 
 - Not "inescapable" or "atomic". A repository admin with `enforce_admins: false` can still
   merge — the residual is documented in [SECURITY.md](SECURITY.md).
-- Not "monitoring verified" by default. With `require_verified_monitoring: true` the gate
-  blocks CWM without delivery evidence; by default it passes CWM on the host's claim.
+- Not "a human read the alert". With `require_verified_monitoring: true` the gate
+  verifies a `cr.monitor.attest.v1` token offline; that proves a monitoring-key
+  holder observed `delivered_acked`, not that a human read it or that the sink
+  targets the right audience. By default it passes CWM on the host's claim.
 - Not "blocks merges" on its own. It posts a Check Run; blocking requires the check to be
   marked **required** in branch protection ([ENFORCEMENT.md](ENFORCEMENT.md)).
 - Not "detects all breaking changes". The pass condition is *a signed ALLOW for this exact

@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- **B2/1b: consume `cr.monitor.attest.v1` offline.** New inputs
+  `monitoring-attestation` (token string) and `monitoring-keyring` (local JSON
+  file, same shape as the receipt keyring). When
+  `require-verified-monitoring: true` and `execution_action` is
+  `CONTINUE_WITH_MONITORING`, the gate verifies the token with `node:crypto`
+  Ed25519 (same path as receipt verification). PASS only if status is
+  `MON_ATTEST_VALID` or `MON_ATTEST_RETIRED_KEY_VALID_AT_ISSUE` **and**
+  `delivery_status === delivered_acked`. Cross-check uses the gate's own
+  preflight envelope: `decision_id` from `decision_result`, `receipt_digest =
+  sha256:` + SHA-256 UTF-8 of the `chain_receipt` token (byte-exact with
+  guard `receiptDigestOfToken`). No network fetch, ever.
+
+### Breaking under the flag (tightening)
+
+- Unsigned `monitoring-delivery` JSON is **no longer accepted** when
+  `require-verified-monitoring` is true. Missing token → BLOCK
+  `monitoring_attestation_missing`. Do not silently fall back to JSON.
+- Default flag remains **false** — existing consumers are byte-identical.
+
+### Honest label
+
+With the flag true and a token, the gate **verifies** delivery evidence
+offline. Remaining limit: the token proves a monitoring-key holder observed
+the delivery — not that a human read it, not that the sink targets the right
+audience.
+
 ## 0.3.0
 
 ### Added
