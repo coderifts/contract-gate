@@ -62,6 +62,10 @@ const COVERAGE_REASONS = Object.freeze({
   UNREADABLE: 'path_unreadable',
   MALFORMED: 'grant_malformed',
   UNVERIFIED: 'grant_unverified',
+  // A retired kid is NEVER live permission for a grant (app kernel execution-grant.js:236-241).
+  // Distinct from grant_unverified so the remedy is obvious: rotate, do not re-send.
+  KEY_RETIRED: 'grant_key_retired',
+  BAD_SIGNATURE: 'grant_signature_invalid',
 });
 
 /**
@@ -99,14 +103,22 @@ function evaluateGrantCoverage({ governedArtifacts, grantResult, operation, repo
     };
   }
   if (grantResult.valid !== true) {
+    // MEASURED against the app kernel's real status vocabulary. An earlier draft mapped
+    // 'GRANT_MALFORMED', which the kernel never emits — every malformed token would have fallen
+    // through to the generic grant_unverified and lost its remedy.
     const byStatus = {
       GRANT_EXPIRED: COVERAGE_REASONS.EXPIRED,
       GRANT_SCOPE_MISMATCH: COVERAGE_REASONS.NOT_COVERED,
       GRANT_WRONG_AUDIENCE: COVERAGE_REASONS.WRONG_BINDING,
       GRANT_UNBOUND: COVERAGE_REASONS.WRONG_BINDING,
-      GRANT_MALFORMED: COVERAGE_REASONS.MALFORMED,
+      MALFORMED: COVERAGE_REASONS.MALFORMED,
+      INVALID_SIGNATURE: COVERAGE_REASONS.BAD_SIGNATURE,
     };
-    const reason = byStatus[grantResult.status] || COVERAGE_REASONS.UNVERIFIED;
+    let reason = byStatus[grantResult.status] || COVERAGE_REASONS.UNVERIFIED;
+    if (grantResult.status === 'UNKNOWN_KEY') {
+      reason = grantResult.reason === 'retired_kid'
+        ? COVERAGE_REASONS.KEY_RETIRED : COVERAGE_REASONS.UNVERIFIED;
+    }
     return {
       covered: false, reason,
       why: `the supplied execution grant did not verify: ${grantResult.status}`

@@ -110,10 +110,22 @@ the change set, never about the agent:
 > Every mutation that reached protected path X in this window carries a valid grant, or is on the
 > exception list.
 
+The grant is verified **offline** before its coverage is considered: the token is parsed as
+`cr.exec.v1`, its `kid` resolved against the pinned `grant-keyring` (no network fetch, ever), its
+Ed25519 signature checked, and its `exp`/`iat` evaluated with the shipped clock-skew leeway. The
+governed set is **derived** from the same diff the gate already reads, classified by the single
+`@coderifts/contract-path` list.
+
+**A retired key is never live permission for a grant.** This differs from receipts, where a
+retired key inside its validity window is a passing historical class
+(`RETIRED_KEY_VALID_AT_ISSUE`). A grant authorises a live execution, so a retired `kid` is
+refused outright — the rule is taken from the app kernel, not inferred.
+
 Failure classes are distinct on purpose — each has a different remedy: `grant_not_supplied` ·
-`grant_does_not_cover_path` · `grant_bound_elsewhere` · `grant_expired` · `grant_malformed` ·
-`grant_unverified` · `path_unreadable`. **`path_unreadable` is UNDECIDABLE and never treated as
-covered** — a blob we cannot read cannot be hashed, so it cannot be shown to be covered.
+`grant_does_not_cover_path` · `grant_bound_elsewhere` · `grant_expired` ·
+`grant_signature_invalid` · `grant_key_retired` · `grant_malformed` · `grant_unverified` ·
+`path_unreadable`. **`path_unreadable` is UNDECIDABLE and never treated as covered** — a blob we
+cannot read cannot be hashed, so it cannot be shown to be covered.
 
 ### Residuals — true with the flag on, and not fixable from inside this Action
 

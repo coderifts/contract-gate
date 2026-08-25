@@ -26,6 +26,8 @@ const { callPreflight } = require('./preflight');
 const { evaluateGate, buildSummary } = require('./gate');
 const { postCheckRun, CHECK_NAME } = require('./check-run');
 const { loadKeyring } = require('./verify');
+const { verifyExecutionGrant } = require('./execution-grant-verify');
+const { deriveGovernedArtifacts } = require('./governed-paths');
 const { loadMonitoringKeyring } = require('./monitoring-attestation');
 
 const PINNED_KEYRING_PATH = path.join(__dirname, '..', 'keyring', 'pinned-keys.json');
@@ -67,6 +69,10 @@ async function runGate({
   requireVerifiedMonitoring = false,
   monitoringAttestation = null,
   monitoringKeyringPath = null,
+  requireGrant = false,
+  executionGrant = null,
+  grantKeyringPath = null,
+  grantOperation = 'merge',
 }) {
   const emitCheck = async (conclusion, title, summary) => {
     if (!githubToken || !owner || !repo || !headSha) { log(`[check skipped] ${conclusion}: ${title}`); return; }
@@ -125,11 +131,35 @@ async function runGate({
     if (monitoringKeyringPath) {
       monitoringKeyring = loadMonitoringKeyring(monitoringKeyringPath);
     }
+    // require-grant: derive the governed set from the SAME diff the gate already read, then
+    // verify the supplied grant offline. Both only when the flag is on — with it off nothing here
+    // runs and the call below is byte-identical to the pre-feature one.
+    let grantResult = null;
+    let governedArtifacts = null;
+    if (requireGrant === true) {
+      governedArtifacts = deriveGovernedArtifacts({
+        changed: artifacts.map((a) => ({
+          path: a.id, after: a.after, unreadable: a.unreadable === true,
+        })),
+      });
+      const tokenStr = typeof executionGrant === 'string' ? executionGrant.trim() : '';
+      if (tokenStr) {
+        // No network fetch, ever: the keyring is a local pinned document, same loader as receipts.
+        const grantKeyring = grantKeyringPath ? await loadKeyring(grantKeyringPath) : keyring;
+        grantResult = verifyExecutionGrant(tokenStr, { keyring: grantKeyring, context: expectedContext });
+      }
+    }
+
     const gate = evaluateGate({
       preflightResponse, keyring, headSha, expectedContext,
       require_verified_monitoring: requireVerifiedMonitoring === true,
       monitoring_attestation: monitoringAttestation,
       monitoring_keyring: monitoringKeyring,
+      require_grant: requireGrant === true,
+      grant_result: grantResult,
+      governed_artifacts: governedArtifacts,
+      grant_operation: grantOperation,
+      repository: context.repository,
     });
 
     // 6. post the stable check run.
@@ -156,6 +186,10 @@ async function main() {
     requireVerifiedMonitoring: parseBoolInput(process.env['INPUT_REQUIRE-VERIFIED-MONITORING'], false),
     monitoringAttestation: process.env['INPUT_MONITORING-ATTESTATION'] || null,
     monitoringKeyringPath: process.env['INPUT_MONITORING-KEYRING'] || null,
+    requireGrant: parseBoolInput(process.env['INPUT_REQUIRE-GRANT'], false),
+    executionGrant: process.env['INPUT_EXECUTION-GRANT'] || null,
+    grantKeyringPath: process.env['INPUT_GRANT-KEYRING'] || null,
+    grantOperation: process.env['INPUT_GRANT-OPERATION'] || 'merge',
   });
   process.exit(res.exitCode);
 }
