@@ -25,6 +25,25 @@ inputs:
     description: 'cr.monitor.attest.v1 token string (guard 9.2.0+ outcome.monitoring_attestation). Required when require-verified-monitoring is true and the decision is CWM. No network fetch.'
     required: false
     default: ''
+  require-grant:
+    description: >-
+      When true, BLOCK unless every changed governed path is covered by a valid cr.exec.v1
+      execution grant bound to this repo and operation. Default false — existing consumers
+      byte-identical. See ENFORCEMENT.md § Store-side grant coverage for the residuals.
+    required: false
+    default: 'false'
+  execution-grant:
+    description: 'cr.exec.v1 grant token covering this change set (required when require-grant is true).'
+    required: false
+    default: ''
+  grant-keyring:
+    description: 'Local keyring document for grant verification. No network fetch, ever.'
+    required: false
+    default: ''
+  grant-operation:
+    description: 'Operation this run represents; the grant must be bound to it.'
+    required: false
+    default: 'merge'
   monitoring-keyring:
     description: 'Local JSON file path for the customer-pinned monitoring-key registry ({ keys: [{ kid, public_key_pem, status, valid_from, retired_at }] }). Same shape as the receipt keyring / .well-known/coderifts-keys.json. Local file only — no fetch.'
     required: false

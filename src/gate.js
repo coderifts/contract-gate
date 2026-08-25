@@ -20,6 +20,7 @@ const {
   receiptDigest,
   STATUSES: MON_STATUSES,
 } = require('./monitoring-attestation');
+const { evaluateGrantCoverage } = require('./grant-coverage.js');
 
 // Execution actions that permit a merge. STOP (BLOCK) and REQUEST_APPROVAL (REQUIRE_APPROVAL) do not.
 const PASSING_ACTIONS = new Set(['CONTINUE', 'CONTINUE_WITH_MONITORING']);
@@ -68,6 +69,11 @@ function evaluateGate({
   require_verified_monitoring = false,
   monitoring_attestation = null,
   monitoring_keyring = null,
+  require_grant = false,
+  grant_result = null,
+  governed_artifacts = null,
+  grant_operation = 'merge',
+  repository = null,
 }) {
   const fail = (reason, extra = {}) => ({
     pass: false, conclusion: 'failure', reason,
@@ -165,6 +171,35 @@ function evaluateGate({
     || mismatchReason(envelope, ctx, 'head', 'head', 'head_mismatch');
   if (bindFail) {
     return fail(bindFail, { receiptStatus: result.status, decision, executionAction });
+  }
+
+  // ── require-grant (roadmap 1010 / panel C1) ───────────────────────────────────────────────
+  // Store-side coverage: the claim is about the CHANGE SET reaching a protected path, never about
+  // the agent. Default false, so every existing consumer is byte-identical.
+  //
+  // RESIDUALS — true with this flag on, and not fixable from inside this Action:
+  //   1. A repository admin with `enforce_admins: false` still lands the change. The record of
+  //      that lands in GitHub's own audit log, signed by a party we do not control.
+  //   2. This check is posted with the workflow's GITHUB_TOKEN, so it carries
+  //      github-actions[bot] identity, NOT the CodeRifts App id. An agent that can edit
+  //      .github/workflows/ can change what runs and still post a green check under this name.
+  //      Govern those paths too, or the gate is advisory against that actor.
+  //   3. Behaviour can change without touching the artifact: a grant binds contract bytes, not
+  //      runtime behaviour. A change that keeps every governed file byte-identical passes here
+  //      and can still change what the service does.
+  if (require_grant === true) {
+    const cov = evaluateGrantCoverage({
+      governedArtifacts: governed_artifacts || [],
+      grantResult: grant_result,
+      operation: grant_operation,
+      repository,
+    });
+    if (!cov.covered) {
+      return fail(cov.reason, {
+        receiptStatus: result.status, decision, executionAction,
+        why: cov.why,
+      });
+    }
   }
 
   return {
