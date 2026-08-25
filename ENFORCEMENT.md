@@ -137,6 +137,25 @@ cannot read cannot be hashed, so it cannot be shown to be covered.
    edit `.github/workflows/` can change what runs and still post a green check under this name.
    **Govern those paths too** — `.github/workflows/**` and the branch-protection config are part
    of the protected surface, or this gate is advisory against that actor.
+
+   **Pinning by issuer does not fix this, and it is worth being exact about why.** A required
+   check can be bound to an issuer, but this check's issuer is `github-actions[bot]` — the
+   identity *every* workflow in the repository posts under. A pin bound to it does not
+   distinguish this Action from any other step the same actor writes into `.github/workflows/`.
+   Only a pin bound to the **CodeRifts App** excludes that actor, because posting under the App
+   needs a signing key no workflow holds.
+
+   **That pin selects a different run, not this one.** The CodeRifts App already posts a check
+   with this exact name from the `pull_request` webhook, and derives its verdict server-side from
+   the PR's head diff through its own installation token — it reads nothing from CI, so a
+   workflow edit cannot reach it. What it cannot do today is conclude `failure`: phase-1 clamps
+   it to `neutral` unless `MERGEGATE_ENFORCE` is set.
+
+   So the two properties are split, and **nothing inside this Action can join them**. A verdict
+   computed in CI is controlled by whoever edits CI, whatever identity it is posted under —
+   forwarding it to us to re-post under the App would move the attribution without moving the
+   trust, which is worse than the honest split: it would look issuer-bound while still being
+   whatever the workflow said.
 3. **Behaviour can change without touching the artifact.** A grant binds contract bytes. A change
    that leaves every governed file byte-identical passes this gate and can still change what the
    service does. Contract governance is not behaviour governance, and no amount of gate strictness
