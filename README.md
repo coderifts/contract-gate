@@ -1,6 +1,6 @@
 # CodeRifts Contract Gate
 
-A GitHub Action that **blocks a merge unless a valid signed ALLOW receipt exists for the PR's actual head diff** — the server-independent enforcement point that an in-process agent cannot bypass.
+A GitHub Action that **fails its check unless a valid signed ALLOW receipt exists for the PR's actual head diff**, verified offline against a pinned keyring. Marked **required** in branch protection, that failing check blocks the merge ([ENFORCEMENT.md](ENFORCEMENT.md)); on its own it posts a Check Run and nothing more. It runs in CI rather than in the agent's process, so it does not depend on the agent's cooperation — but a repository admin with `enforce_admins: false` can still merge past it ([SECURITY.md](SECURITY.md)).
 
 > Distinct from [`coderifts/action`](https://github.com/coderifts/action), which is the *advisory* breaking-change action (posts a PR comment). This gate is a **required-check** enforcement point with **offline cryptographic** receipt verification.
 

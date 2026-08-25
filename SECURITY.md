@@ -46,3 +46,14 @@ workflow) are also admin-only actions and should be governed the same way.
 - It governs the contract artifact families it classifies (openapi/graphql/grpc/asyncapi/
   mcp-manifest). A contract expressed in an unclassified file would not be detected — extend
   `src/artifacts.js` classifiers as needed.
+
+**The artifact is not the contract.** The bullet above is about files this gate fails to classify;
+this one is about a change it cannot see at all. The gate keys off the PR's head diff of contract
+*files*. An implementation edit under an unchanged spec changes the served behaviour and produces
+nothing for the gate to weigh: the contract diff is empty, the receipt covers a change set that
+does not describe what actually shipped, and a green check means only that the artifact did not
+move. A handler that starts returning `null` for a field the schema still marks required, a
+response that quietly changes shape, an authorization check deleted behind a byte-identical
+OpenAPI file — none of those are contract changes as far as this gate is concerned, and none of
+them are caught here. Governing the artifact is not the same as governing the behaviour it
+describes, and this gate does not diff served behaviour.

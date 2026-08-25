@@ -100,3 +100,32 @@ silently fails open, and how to close each:
 informational — configure GitHub branch protection rules to enforce them."* Once this gate is the
 recommended enforcement path, that message could link here. Left as a server-side follow-up — R2
 makes no server changes.
+
+## Store-side grant coverage (`require-grant`, default false)
+
+With `require-grant: true` the gate BLOCKS unless every changed governed path is covered by a
+valid `cr.exec.v1` grant bound to this repository and operation. The claim it supports is about
+the change set, never about the agent:
+
+> Every mutation that reached protected path X in this window carries a valid grant, or is on the
+> exception list.
+
+Failure classes are distinct on purpose — each has a different remedy: `grant_not_supplied` ·
+`grant_does_not_cover_path` · `grant_bound_elsewhere` · `grant_expired` · `grant_malformed` ·
+`grant_unverified` · `path_unreadable`. **`path_unreadable` is UNDECIDABLE and never treated as
+covered** — a blob we cannot read cannot be hashed, so it cannot be shown to be covered.
+
+### Residuals — true with the flag on, and not fixable from inside this Action
+
+1. **An admin override still lands.** A repository admin with `enforce_admins: false` merges past
+   every required check. The record of that lands in GitHub's own audit log — signed by a party we
+   do not control, which is the point and also the limit.
+2. **This check does not carry CodeRifts App identity.** It is posted with the workflow's
+   `GITHUB_TOKEN`, so it is attributed to `github-actions[bot]`, not to our App. An actor who can
+   edit `.github/workflows/` can change what runs and still post a green check under this name.
+   **Govern those paths too** — `.github/workflows/**` and the branch-protection config are part
+   of the protected surface, or this gate is advisory against that actor.
+3. **Behaviour can change without touching the artifact.** A grant binds contract bytes. A change
+   that leaves every governed file byte-identical passes this gate and can still change what the
+   service does. Contract governance is not behaviour governance, and no amount of gate strictness
+   closes that.
