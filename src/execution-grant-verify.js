@@ -94,6 +94,10 @@ function parseGrantToken(token) {
  * @returns {{ valid:boolean, status:string, reason:(string|null), payload?:object }}
  */
 function verifyExecutionGrant(token, opts = {}) {
+  const { peekGrantVersion, verifyExecutionGrantV2 } = require('./execution-grant-v2');
+  if (peekGrantVersion(token) === 'cr.exec.v2') {
+    return verifyExecutionGrantV2(token, opts);
+  }
   const parsed = parseGrantToken(token);
   if (!parsed.ok) return { valid: false, status: parsed.status, reason: parsed.reason, payload: parsed.payload };
   const { payload, sig } = parsed;

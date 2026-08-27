@@ -29,6 +29,7 @@ const { loadKeyring } = require('./verify');
 const { verifyExecutionGrant } = require('./execution-grant-verify');
 const { deriveGovernedArtifacts } = require('./governed-paths');
 const { loadMonitoringKeyring } = require('./monitoring-attestation');
+const { selectGrantForHead } = require('./grant-delivery');
 
 const PINNED_KEYRING_PATH = path.join(__dirname, '..', 'keyring', 'pinned-keys.json');
 
@@ -73,6 +74,7 @@ async function runGate({
   executionGrant = null,
   grantKeyringPath = null,
   grantOperation = 'merge',
+  grantComments = null,
 }) {
   const emitCheck = async (conclusion, title, summary) => {
     if (!githubToken || !owner || !repo || !headSha) { log(`[check skipped] ${conclusion}: ${title}`); return; }
@@ -142,9 +144,17 @@ async function runGate({
           path: a.id, after: a.after, unreadable: a.unreadable === true,
         })),
       });
-      const tokenStr = typeof executionGrant === 'string' ? executionGrant.trim() : '';
-      if (tokenStr) {
-        // No network fetch, ever: the keyring is a local pinned document, same loader as receipts.
+      let tokenStr = typeof executionGrant === 'string' ? executionGrant.trim() : '';
+      if (!tokenStr && Array.isArray(grantComments)) {
+        const sel = selectGrantForHead(grantComments, headSha);
+        if (!sel.ok && sel.reason === 'grant_bound_elsewhere') {
+          grantResult = { valid: false, status: 'GRANT_UNBOUND', reason: 'grant_bound_elsewhere' };
+        } else if (sel.ok) {
+          tokenStr = sel.grant;
+        }
+      }
+      if (tokenStr && !(grantResult && grantResult.status === 'GRANT_UNBOUND')) {
+        // No network fetch of keys: the keyring is a local pinned document, same loader as receipts.
         const grantKeyring = grantKeyringPath ? await loadKeyring(grantKeyringPath) : keyring;
         grantResult = verifyExecutionGrant(tokenStr, { keyring: grantKeyring, context: expectedContext });
       }
