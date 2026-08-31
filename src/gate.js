@@ -15,6 +15,7 @@
  */
 
 const { verifyReceipt } = require('./verify');
+const { unwrapReceiptInput } = require('./from-dsse.js');
 const {
   verifyMonitoringAttestation,
   receiptDigest,
@@ -84,7 +85,22 @@ function evaluateGate({
 
   if (!preflightResponse || typeof preflightResponse !== 'object') return fail('no_preflight_response');
 
-  const token = preflightResponse.chain_receipt;
+  // ── RECEIPT INPUT: compact token OR DSSE envelope (roadmap 1224 Phase 3a) ───
+  //
+  // `chain_receipt` may now arrive as a DSSE / in-toto envelope, so an external
+  // system that emits the standard export passes this gate. UNPACKING ONLY:
+  // fromDSSE returns the compact token byte-for-byte, and verifyReceipt below
+  // decides with the same nine checks it has always run.
+  //
+  // A DSSE envelope is NOT evidence. One wrapping a receipt with a bad
+  // signature unpacks cleanly and then fails verification, exactly as that
+  // compact token would have — the signature is over the compact bytes
+  // (RECEIPT_FORMAT.md §9). Nothing below this line changed.
+  const unwrapped = unwrapReceiptInput(preflightResponse.chain_receipt);
+  if (!unwrapped.ok) {
+    return fail(unwrapped.reason, unwrapped.detail ? { receiptStatus: unwrapped.detail } : {});
+  }
+  const token = unwrapped.token;
   const envelope = preflightResponse.decision_result;
   if (typeof token !== 'string' || token.length === 0) return fail('missing_receipt');
   if (!envelope || typeof envelope !== 'object') return fail('missing_decision_result');
