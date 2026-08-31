@@ -1,5 +1,5 @@
 name: 'CodeRifts Contract Gate'
-description: 'Blocks a merge unless a signed ALLOW receipt verifies offline against a pinned keyring for the PR''s actual head diff. With require_verified_monitoring: true the gate verifies a cr.monitor.attest.v1 token offline against a pinned monitoring keyring (CWM passes only on delivered_acked); by default it passes CWM on the host''s claim.'
+description: 'Blocks a merge unless a signed ALLOW receipt verifies offline against a pinned keyring for the PR''s actual head diff. The receipt may be a compact token or a DSSE/in-toto envelope (the gate unwraps the envelope and verifies the compact bytes; the envelope is not itself a pass). With require-grant: true the gate verifies a cr.exec.v1 or cr.exec.v2 grant token offline. With require_verified_monitoring: true the gate verifies a cr.monitor.attest.v1 token offline against a pinned monitoring keyring (CWM passes only on delivered_acked); by default it passes CWM on the host''s claim.'
 author: 'CodeRifts'
 branding:
   icon: 'lock'
@@ -28,12 +28,16 @@ inputs:
   require-grant:
     description: >-
       When true, BLOCK unless every changed governed path is covered by a valid cr.exec.v1
-      execution grant bound to this repo and operation. Default false — existing consumers
-      byte-identical. See ENFORCEMENT.md § Store-side grant coverage for the residuals.
+      or cr.exec.v2 execution grant bound to this repo and operation. v1 remains the
+      back-compat form (existing consumers byte-identical). v2 is verified when presented.
+      Default false. See ENFORCEMENT.md § Store-side grant coverage for the residuals.
     required: false
     default: 'false'
   execution-grant:
-    description: 'cr.exec.v1 grant token covering this change set (required when require-grant is true).'
+    description: >-
+      Compact cr.exec.v1 or cr.exec.v2 grant token covering this change set (required when
+      require-grant is true). Offline verify against grant-keyring. This input is the compact
+      grant token, not a DSSE envelope (DSSE unwrap applies to the receipt, not this field).
     required: false
     default: ''
   grant-keyring:
@@ -52,6 +56,9 @@ inputs:
 # The receipt is ALWAYS verified offline against the keyring pinned in this action
 # (keyring/pinned-keys.json). The gate NEVER fetches the verification key from the server it is
 # verifying. Requires actions/checkout with fetch-depth: 0 so base..head is available locally.
+# Receipt (chain_receipt on the preflight response) may be a compact token or a DSSE/in-toto
+# envelope; src/from-dsse.js unwraps to the compact token and verify.js decides. DSSE presence
+# is not a pass. Grants (execution-grant) are compact cr.exec.v1 or cr.exec.v2 tokens.
 runs:
   using: 'node20'
   main: 'src/index.js'
