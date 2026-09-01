@@ -17,6 +17,13 @@ inputs:
     description: 'Token with checks:write to post the "CodeRifts / contract-gate" Check Run.'
     required: false
     default: ${{ github.token }}
+  check-name:
+    description: >-
+      Name of the check run this Action posts. Leave the default unless another integration
+      already posts under that name; a changed name must also be the required-check context
+      in branch protection.
+    required: false
+    default: 'CodeRifts / contract-gate'
   require-verified-monitoring:
     description: 'When true, CONTINUE_WITH_MONITORING passes only if a cr.monitor.attest.v1 token verifies offline (MON_ATTEST_VALID or retired-in-window) AND delivery_status is delivered_acked. Unsigned JSON is not accepted. Default false (existing consumers unchanged).'
     required: false

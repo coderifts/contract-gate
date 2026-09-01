@@ -103,6 +103,7 @@ function evaluateGate({
       decision: extra.decision ?? null, executionAction: extra.executionAction ?? null,
       receiptStatus: extra.receiptStatus ?? null, headSha,
       ...(remedy ? { remedy } : {}),
+      ...(extra.nextStep ? { nextStep: extra.nextStep } : {}),
       summary: buildSummary({ pass: false, reason, headSha, ...extra, remedy }),
     };
   };
@@ -147,7 +148,12 @@ function evaluateGate({
     return fail('receipt_unverified', { receiptStatus: result ? result.status : null, decision, executionAction });
   }
   if (!executionAction || !PASSING_ACTIONS.has(executionAction)) {
-    return fail('decision_not_allow', { receiptStatus: result.status, decision, executionAction });
+    // A policy refusal is NOT a missing grant, so it carries no deny-remedy block. What it can
+    // carry is the decision's OWN remediation suggestion, which the server already computed.
+    return fail('decision_not_allow', {
+      receiptStatus: result.status, decision, executionAction,
+      nextStep: readNextAgentStep(preflightResponse),
+    });
   }
   if (require_verified_monitoring === true && executionAction === 'CONTINUE_WITH_MONITORING') {
     const tokenStr = typeof monitoring_attestation === 'string' ? monitoring_attestation.trim() : '';
@@ -250,6 +256,56 @@ function evaluateGate({
 }
 
 /**
+ * `control_envelope.next_agent_step` off the preflight response this gate already parses.
+ *
+ * MEASURED shape (producer: response-envelope.js `projectNextAgentStep`) —
+ * `{ action, reason, resume_condition, then_call }`, where `action` is one of
+ * re_preflight | revert | migrate | escalate | await_approval and `then_call` may be null.
+ * It is `null` on the allow class, and the producer never invents one for an unknown
+ * execution_action.
+ *
+ * Read defensively and returned verbatim: this gate reports what the decision said, and a
+ * response without the field renders no section rather than a guessed step.
+ */
+function readNextAgentStep(preflightResponse) {
+  const env = preflightResponse && typeof preflightResponse === 'object'
+    ? preflightResponse.control_envelope
+    : null;
+  const step = env && typeof env === 'object' ? env.next_agent_step : null;
+  if (!step || typeof step !== 'object') return null;
+  if (typeof step.action !== 'string' || step.action.length === 0) return null;
+  return step;
+}
+
+/**
+ * The decision's own remediation, rendered as text.
+ *
+ * DELIBERATELY NOT a deny-remedy.v1 block. That schema describes a grant that is missing,
+ * invalid, or scoped elsewhere, and its `action_required` says "call preflight_change_set in
+ * authorize mode". A policy BLOCK is none of those: the caller HELD a verified receipt and the
+ * decision was no. Telling them to request a grant would send them back for the same answer.
+ *
+ * The closing line is fixed and is not from the server: the step is a suggestion, and
+ * execution_action remains the thing to branch on.
+ */
+function nextStepBlock(step) {
+  if (!step) return null;
+  const field = (label, value) => (value == null || value === ''
+    ? null
+    : `- ${label}: \`${String(value)}\``);
+  return [
+    '### Next step (from the decision)',
+    '',
+    field('action', step.action),
+    field('reason', step.reason),
+    field('resume_condition', step.resume_condition),
+    field('then_call', step.then_call),
+    '',
+    'This is the decision\'s remediation suggestion, not permission; branch on execution_action.',
+  ].filter((l) => l !== null).join('\n');
+}
+
+/**
  * The remedy as a fenced JSON block — one renderer, so the check-run summary and
  * the check-run text carry byte-identical bytes for a consumer to parse.
  */
@@ -258,7 +314,7 @@ function remedyBlock(remedy) {
   return ['```json', JSON.stringify(remedy, null, 2), '```'].join('\n');
 }
 
-function buildSummary({ pass, reason, decision, executionAction, receiptStatus, headSha, why, remedy }) {
+function buildSummary({ pass, reason, decision, executionAction, receiptStatus, headSha, why, remedy, nextStep }) {
   const lines = [
     pass ? '✅ **CodeRifts contract-gate: PASS**' : '❌ **CodeRifts contract-gate: FAIL** (merge blocked)',
     '',
@@ -272,8 +328,9 @@ function buildSummary({ pass, reason, decision, executionAction, receiptStatus, 
       ? 'A valid signed ALLOW receipt was verified **offline against the pinned keyring** for the exact head diff.'
       : 'No valid signed ALLOW receipt exists for this exact head diff. Verified offline against the pinned keyring; fail-closed.',
     ...(remedy ? ['', 'To obtain a grant for this change set:', '', remedyBlock(remedy)] : []),
+    ...(nextStep ? ['', nextStepBlock(nextStep)] : []),
   ];
   return lines.join('\n');
 }
 
-module.exports = { evaluateGate, PASSING_ACTIONS, buildSummary, remedyBlock };
+module.exports = { evaluateGate, PASSING_ACTIONS, buildSummary, remedyBlock, nextStepBlock, readNextAgentStep };

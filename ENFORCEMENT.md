@@ -22,9 +22,24 @@ The required status check context string must be **EXACTLY**:
 CodeRifts / contract-gate
 ```
 
-This is the hardcoded `CHECK_NAME` in `src/check-run.js` (not derived from any input, cannot vary).
-The check-run **name** is what branch protection matches — **not** the workflow name and **not** the
-job name.
+This is the default `CHECK_NAME` in `src/check-run.js`. The check-run **name** is what branch
+protection matches — **not** the workflow name and **not** the job name.
+
+**When two integrations post the same name.** The CodeRifts GitHub App posts a check named
+`CodeRifts / contract-gate` as well. A repository running both the App and this Action shows two
+checks under one name, and a required-check context cannot distinguish them. The Action's
+`check-name` input exists for that case only:
+
+```yaml
+      - uses: coderifts/contract-gate@v0
+        with:
+          api-key: ${{ secrets.CODERIFTS_API_KEY }}
+          check-name: 'contract-gate (Action)'
+```
+
+If you set it, **require that name instead** — everything below applies to whichever name is
+actually posted. Leave the default when only the Action runs: a name changed for no reason is the
+same misconfiguration this section exists to prevent, arriving from the other direction.
 
 > ⚠️ **If the required-check context does not byte-match the posted name, branch protection silently
 > never blocks** — the required check stays perpetually "expected / pending" against a check that,

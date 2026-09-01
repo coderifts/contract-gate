@@ -23,7 +23,7 @@ const fs = require('node:fs');
 const { deriveArtifactsFromDiff, defaultGit } = require('./artifacts');
 const { buildGateCompletenessClaim } = require('./completeness-claim');
 const { callPreflight } = require('./preflight');
-const { evaluateGate, buildSummary, remedyBlock } = require('./gate');
+const { evaluateGate, buildSummary, remedyBlock, nextStepBlock } = require('./gate');
 const { postCheckRun, CHECK_NAME } = require('./check-run');
 const { loadKeyring } = require('./verify');
 const { verifyExecutionGrant } = require('./execution-grant-verify');
@@ -60,7 +60,7 @@ function parseBoolInput(v, fallback = false) {
 }
 
 async function runGate({
-  apiKey, apiUrl, githubToken, owner, repo, baseSha, headSha, cwd,
+  apiKey, apiUrl, githubToken, checkName, owner, repo, baseSha, headSha, cwd,
   keyringPath = PINNED_KEYRING_PATH,
   gitImpl = defaultGit,
   preflightImpl = callPreflight,
@@ -79,7 +79,7 @@ async function runGate({
   const emitCheck = async (conclusion, title, summary, text = null) => {
     if (!githubToken || !owner || !repo || !headSha) { log(`[check skipped] ${conclusion}: ${title}`); return; }
     try {
-      const r = await postCheckRunImpl({ token: githubToken, owner, repo, headSha, conclusion, title, summary, text, fetchImpl });
+      const r = await postCheckRunImpl({ token: githubToken, owner, repo, headSha, conclusion, title, summary, text, checkName, fetchImpl });
       if (!r.ok) log(`[check-run] non-2xx: ${r.status}`);
     } catch (e) { log(`[check-run] error: ${e && e.message}`); }
   };
@@ -174,7 +174,11 @@ async function runGate({
 
     // 6. post the stable check run.
     const title = gate.pass ? 'Signed ALLOW verified for this diff' : 'Blocked — no verified ALLOW for this diff';
-    await emitCheck(gate.conclusion, title, gate.summary, remedyBlock(gate.remedy));
+    // output.text carries whichever machine-readable next step this refusal has. The two are
+    // mutually exclusive by construction — a policy refusal maps to no remedy class — but they
+    // are composed rather than assumed apart.
+    const detail = [remedyBlock(gate.remedy), nextStepBlock(gate.nextStep)].filter(Boolean).join('\n\n');
+    await emitCheck(gate.conclusion, title, gate.summary, detail || null);
     log(`contract-gate: ${gate.pass ? 'PASS' : 'FAIL'} (${gate.reason}); files=${changedContractFiles.join(',')}`);
     return { exitCode: gate.pass ? 0 : 1, gate, artifactCount: artifacts.length };
   } catch (err) {
@@ -191,6 +195,7 @@ async function main() {
     apiKey: process.env['INPUT_API-KEY'] || process.env.CODERIFTS_API_KEY,
     apiUrl: process.env['INPUT_API-URL'] || 'https://app.coderifts.com',
     githubToken: process.env['INPUT_GITHUB-TOKEN'] || process.env.GITHUB_TOKEN,
+    checkName: process.env['INPUT_CHECK-NAME'] || undefined,
     owner: ev.owner, repo: ev.repo, baseSha: ev.baseSha, headSha: ev.headSha,
     cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
     requireVerifiedMonitoring: parseBoolInput(process.env['INPUT_REQUIRE-VERIFIED-MONITORING'], false),

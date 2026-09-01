@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- **`check-name` input.** The name of the Check Run this Action posts is now configurable
+  (default `CodeRifts / contract-gate`, unchanged). Set it only when another integration
+  already posts under that name — the CodeRifts GitHub App posts the same name, so a
+  repository running both would otherwise show two identically-named checks and branch
+  protection could not tell them apart. A changed name must also be the required-check
+  context in branch protection; see ENFORCEMENT.md.
+- **The decision's own next step on a non-allow decision.** When the receipt verifies and the
+  decision is not allow-class (`decision_not_allow`), the check output now renders
+  `control_envelope.next_agent_step` — `action`, `reason`, `resume_condition`, `then_call` —
+  verbatim from the server, under the heading "Next step (from the decision)", followed by a
+  fixed line stating that it is a suggestion and that `execution_action` remains the field to
+  branch on. Absent or malformed → no heading is rendered; no step is invented.
+
+  This is deliberately **not** a `deny-remedy.v1` block. That schema describes a grant that is
+  missing, invalid, or scoped elsewhere, and its `action_required` says to call
+  `preflight_change_set` in authorize mode. A policy BLOCK is none of those — the caller held a
+  verified receipt and the decision was no — so telling them to request a grant would send them
+  back for the same answer.
+
+### Unchanged
+
+- The default check name is byte-for-byte the documented required-check context; a test asserts
+  it against the string ENFORCEMENT.md instructs operators to configure.
+- Verdicts. Rendering a next step does not change any conclusion: a failure stays a failure, and
+  every verdict field on a run carrying a step matches a run without one.
+- The vendored verify core (`src/verify.js` `b1d87994…`, `src/arity.js`) and the deny-remedy
+  builder are untouched.
+
 ## 0.4.0
 
 ### Added

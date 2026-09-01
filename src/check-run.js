@@ -19,11 +19,12 @@ const CHECK_NAME = 'CodeRifts / contract-gate';
  * @param {string} o.title
  * @param {string} o.summary
  * @param {string} [o.text]      long-form body under the summary; omitted when null
+ * @param {string} [o.checkName] name of the posted check run; defaults to CHECK_NAME
  * @param {string} [o.apiUrl]    GitHub API base (default https://api.github.com)
  * @param {typeof fetch} [o.fetchImpl]
  * @returns {Promise<{ok:boolean, status:number}>}
  */
-async function postCheckRun({ token, owner, repo, headSha, conclusion, title, summary, text = null, apiUrl = 'https://api.github.com', fetchImpl = fetch }) {
+async function postCheckRun({ token, owner, repo, headSha, conclusion, title, summary, text = null, checkName = CHECK_NAME, apiUrl = 'https://api.github.com', fetchImpl = fetch }) {
   if (!token) throw new Error('postCheckRun: token is required');
   if (!owner || !repo || !headSha) throw new Error('postCheckRun: owner, repo, headSha required');
 
@@ -37,7 +38,10 @@ async function postCheckRun({ token, owner, repo, headSha, conclusion, title, su
       'User-Agent': 'coderifts-contract-gate',
     },
     body: JSON.stringify({
-      name: CHECK_NAME,
+      // CHECK_NAME by default. A caller overrides it only to avoid a collision with
+      // another integration posting under the same name; whichever name is posted is
+      // the one branch protection must require (ENFORCEMENT.md).
+      name: typeof checkName === 'string' && checkName.trim().length > 0 ? checkName.trim() : CHECK_NAME,
       head_sha: headSha,
       status: 'completed',
       conclusion,
