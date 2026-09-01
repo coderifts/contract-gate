@@ -22,6 +22,7 @@ const {
   STATUSES: MON_STATUSES,
 } = require('./monitoring-attestation');
 const { evaluateGrantCoverage } = require('./grant-coverage.js');
+const { buildDenyRemedy, denyErrorForReason } = require('./deny-remedy.js');
 
 // Execution actions that permit a merge. STOP (BLOCK) and REQUEST_APPROVAL (REQUIRE_APPROVAL) do not.
 const PASSING_ACTIONS = new Set(['CONTINUE', 'CONTINUE_WITH_MONITORING']);
@@ -76,12 +77,35 @@ function evaluateGate({
   grant_operation = 'merge',
   repository = null,
 }) {
-  const fail = (reason, extra = {}) => ({
-    pass: false, conclusion: 'failure', reason,
-    decision: extra.decision ?? null, executionAction: extra.executionAction ?? null,
-    receiptStatus: extra.receiptStatus ?? null, headSha,
-    summary: buildSummary({ pass: false, reason, headSha, ...extra }),
-  });
+  // The refusal, plus the next step when this reason maps to one of the three
+  // classes the schema defines. A reason outside that map (verify_threw,
+  // monitoring_*, path_unreadable) gets NO remedy: an unactionable refusal is
+  // reported as unactionable rather than given a plausible-looking instruction.
+  //
+  // Attached AFTER the verdict. `pass`, `conclusion` and `reason` are what they
+  // were before this existed; the remedy is additive.
+  const fail = (reason, extra = {}) => {
+    const remedy = buildDenyRemedy({
+      error: denyErrorForReason(reason),
+      // This gate's own addressing is the repository it governs. The head SHA is
+      // a git commit id, NOT a sha256 content fingerprint, so it rides in
+      // `observed` and `fingerprint` stays null rather than carrying a value of
+      // the wrong kind.
+      target: typeof repository === 'string' && repository.length > 0 ? repository : null,
+      observed: {
+        reason,
+        ...(extra.receiptStatus ? { receipt_status: extra.receiptStatus } : {}),
+        ...(headSha ? { head_sha: headSha } : {}),
+      },
+    });
+    return {
+      pass: false, conclusion: 'failure', reason,
+      decision: extra.decision ?? null, executionAction: extra.executionAction ?? null,
+      receiptStatus: extra.receiptStatus ?? null, headSha,
+      ...(remedy ? { remedy } : {}),
+      summary: buildSummary({ pass: false, reason, headSha, ...extra, remedy }),
+    };
+  };
 
   if (!preflightResponse || typeof preflightResponse !== 'object') return fail('no_preflight_response');
 
@@ -225,7 +249,16 @@ function evaluateGate({
   };
 }
 
-function buildSummary({ pass, reason, decision, executionAction, receiptStatus, headSha, why }) {
+/**
+ * The remedy as a fenced JSON block — one renderer, so the check-run summary and
+ * the check-run text carry byte-identical bytes for a consumer to parse.
+ */
+function remedyBlock(remedy) {
+  if (!remedy) return null;
+  return ['```json', JSON.stringify(remedy, null, 2), '```'].join('\n');
+}
+
+function buildSummary({ pass, reason, decision, executionAction, receiptStatus, headSha, why, remedy }) {
   const lines = [
     pass ? '✅ **CodeRifts contract-gate: PASS**' : '❌ **CodeRifts contract-gate: FAIL** (merge blocked)',
     '',
@@ -238,8 +271,9 @@ function buildSummary({ pass, reason, decision, executionAction, receiptStatus, 
     pass
       ? 'A valid signed ALLOW receipt was verified **offline against the pinned keyring** for the exact head diff.'
       : 'No valid signed ALLOW receipt exists for this exact head diff. Verified offline against the pinned keyring; fail-closed.',
+    ...(remedy ? ['', 'To obtain a grant for this change set:', '', remedyBlock(remedy)] : []),
   ];
   return lines.join('\n');
 }
 
-module.exports = { evaluateGate, PASSING_ACTIONS, buildSummary };
+module.exports = { evaluateGate, PASSING_ACTIONS, buildSummary, remedyBlock };

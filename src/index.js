@@ -23,7 +23,7 @@ const fs = require('node:fs');
 const { deriveArtifactsFromDiff, defaultGit } = require('./artifacts');
 const { buildGateCompletenessClaim } = require('./completeness-claim');
 const { callPreflight } = require('./preflight');
-const { evaluateGate, buildSummary } = require('./gate');
+const { evaluateGate, buildSummary, remedyBlock } = require('./gate');
 const { postCheckRun, CHECK_NAME } = require('./check-run');
 const { loadKeyring } = require('./verify');
 const { verifyExecutionGrant } = require('./execution-grant-verify');
@@ -76,10 +76,10 @@ async function runGate({
   grantOperation = 'merge',
   grantComments = null,
 }) {
-  const emitCheck = async (conclusion, title, summary) => {
+  const emitCheck = async (conclusion, title, summary, text = null) => {
     if (!githubToken || !owner || !repo || !headSha) { log(`[check skipped] ${conclusion}: ${title}`); return; }
     try {
-      const r = await postCheckRunImpl({ token: githubToken, owner, repo, headSha, conclusion, title, summary, fetchImpl });
+      const r = await postCheckRunImpl({ token: githubToken, owner, repo, headSha, conclusion, title, summary, text, fetchImpl });
       if (!r.ok) log(`[check-run] non-2xx: ${r.status}`);
     } catch (e) { log(`[check-run] error: ${e && e.message}`); }
   };
@@ -174,7 +174,7 @@ async function runGate({
 
     // 6. post the stable check run.
     const title = gate.pass ? 'Signed ALLOW verified for this diff' : 'Blocked — no verified ALLOW for this diff';
-    await emitCheck(gate.conclusion, title, gate.summary);
+    await emitCheck(gate.conclusion, title, gate.summary, remedyBlock(gate.remedy));
     log(`contract-gate: ${gate.pass ? 'PASS' : 'FAIL'} (${gate.reason}); files=${changedContractFiles.join(',')}`);
     return { exitCode: gate.pass ? 0 : 1, gate, artifactCount: artifacts.length };
   } catch (err) {
