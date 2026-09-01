@@ -69,5 +69,7 @@ A diff that changes no contract file passes with `no_contract_changes` (nothing 
 ## Dependencies
 
 Zero runtime dependencies — Node builtins only, plus a vendored, byte-identical copy of the frozen
-receipt verifier (`src/verify.js`, from `receipt-verifier/verify.js`). Minimal supply-chain surface
-for a security gate.
+receipt verifier (`src/verify.js` and `src/arity.js`, from `receipt-verifier`). Minimal supply-chain
+surface for a security gate. The copied revision and the SHA-256 of each file are recorded in
+[`VENDOR.md`](VENDOR.md) and `src/VENDOR.sha256`; `test/vendor-core.test.js` fails if either file
+drifts from its pin, and separately re-checks the key-status behaviour the pin exists to protect.

@@ -135,7 +135,7 @@ function evaluateGate({
   // THIS decision_result (complete envelope, including head/base/repo/operation/preflight_mode).
   let result;
   try {
-    result = verifyReceipt(token, { keyring, expectedKid: null }, { envelope, now });
+    result = verifyReceipt(token, { ctx: { keyring, expectedKid: null }, envelope, now });
   } catch (err) {
     return fail('verify_threw', { receiptStatus: `error:${err && err.message ? err.message : 'unknown'}` });
   }
