@@ -1,0 +1,44 @@
+{
+  "_comment": "Filled from measurements taken on coderifts/demo, 2026-09-01. The gitlab and bitbucket rows are stated as unimplemented rather than omitted, so an absent row is never read as a passing one.",
+  "results": [
+    {
+      "provider": "github",
+      "mode": "app",
+      "required_check": {
+        "name": "CodeRifts / contract-gate",
+        "bound_to_source": false,
+        "posters": ["coderifts"]
+      },
+      "readback": {
+        "status": "EXACT",
+        "evidence": "gh api repos/coderifts/demo/branches/main/protection --jq '.required_status_checks.checks' -> [{\"context\":\"CodeRifts / contract-gate\",\"app_id\":null}]; gh api repos/coderifts/demo/commits/<head>/check-runs -> one run with that exact name, app coderifts/2860592"
+      },
+      "negative_test": {
+        "status": "NOT_RUN",
+        "procedure": "test/negative-provider-enforcement.md"
+      },
+      "bypass_policy": { "enforce_admins": false },
+      "statement": "One required context is configured and one app posted it; the requirement records no app binding, so it is satisfied by name alone and the negative test has not been run."
+    },
+    {
+      "provider": "gitlab",
+      "mode": "none",
+      "required_check": { "name": "", "bound_to_source": "unknown", "posters": [] },
+      "readback": { "status": "ABSENT", "evidence": "not implemented — no measurement taken" },
+      "negative_test": { "status": "NOT_RUN" },
+      "bypass_policy": { "enforce_admins": "unknown" },
+      "statement": "Not implemented for GitLab; nothing is claimed.",
+      "not_implemented": "NOT_IMPLEMENTED — no GitLab integration exists, so no enforcement is measured or claimed."
+    },
+    {
+      "provider": "bitbucket",
+      "mode": "none",
+      "required_check": { "name": "", "bound_to_source": "unknown", "posters": [] },
+      "readback": { "status": "ABSENT", "evidence": "not implemented — no measurement taken" },
+      "negative_test": { "status": "NOT_RUN" },
+      "bypass_policy": { "enforce_admins": "unknown" },
+      "statement": "Not implemented for Bitbucket; nothing is claimed.",
+      "not_implemented": "NOT_IMPLEMENTED — no Bitbucket integration exists, so no enforcement is measured or claimed."
+    }
+  ]
+}

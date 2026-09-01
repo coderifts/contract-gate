@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coderifts.com/schemas/provider-enforcement-result.v1.json",
+  "title": "provider-enforcement-result.v1",
+  "description": "What a repository host's enforcement was measured to do — not what it is configured to do. Every field is a readback of provider state or the recorded result of the negative test in test/negative-provider-enforcement.md. DRAFT: nothing produces or consumes this yet.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["provider", "mode", "required_check", "readback", "negative_test", "bypass_policy", "statement"],
+  "properties": {
+    "provider": {
+      "description": "The repository host the measurement was taken on.",
+      "enum": ["github", "gitlab", "bitbucket"]
+    },
+    "mode": {
+      "description": "How the gate's verdict is bound to the merge decision. 'app' = a check-run from an app installation; 'sha_pinned_workflow' = a workflow pinned to a commit; 'none' = nothing binds it, including 'not implemented for this provider'.",
+      "enum": ["app", "sha_pinned_workflow", "none"]
+    },
+    "required_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "bound_to_source", "posters"],
+      "properties": {
+        "name": {
+          "description": "The required status-check context string, exactly as branch protection stores it.",
+          "type": "string"
+        },
+        "bound_to_source": {
+          "description": "Whether the requirement names an app_id. false means name-only matching: any poster using that name satisfies it. 'unknown' is for providers whose API does not report a binding — never a guess.",
+          "oneOf": [{ "type": "boolean" }, { "const": "unknown" }]
+        },
+        "posters": {
+          "description": "App slugs observed posting this exact context name on the measured head. More than one is why readback.status can be INDETERMINATE.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "readback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "evidence"],
+      "properties": {
+        "status": {
+          "description": "EXACT = one poster carries the required name. INDETERMINATE = several do, and which one satisfied the requirement cannot be read back. ABSENT = nobody posted it.",
+          "enum": ["EXACT", "INDETERMINATE", "ABSENT"]
+        },
+        "evidence": {
+          "description": "The API reads the status was derived from. Free-form, but it must be something a reader can re-run.",
+          "type": "string"
+        }
+      }
+    },
+    "negative_test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "description": "PASSED = a foreign poster could NOT satisfy the requirement. FAILED = it could. NOT_RUN = the procedure has not been executed; it is never inferred from configuration.",
+          "enum": ["PASSED", "FAILED", "NOT_RUN"]
+        },
+        "procedure": {
+          "description": "Path or URL of the procedure that produced the status.",
+          "type": "string"
+        },
+        "observed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "bypass_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enforce_admins"],
+      "properties": {
+        "enforce_admins": {
+          "description": "Whether the host applies the requirement to administrators. false means an admin merges past every row above.",
+          "oneOf": [{ "type": "boolean" }, { "const": "unknown" }]
+        }
+      }
+    },
+    "statement": {
+      "description": "One sentence a surface may claim, and no more than the fields above support. A statement that outruns negative_test.status or bound_to_source is the failure this schema exists to prevent.",
+      "type": "string",
+      "maxLength": 400
+    },
+    "not_implemented": {
+      "description": "Present when mode is 'none' because the provider is unsupported rather than unbound. States that plainly instead of leaving the reader to infer it from empty fields.",
+      "type": "string"
+    }
+  }
+}
