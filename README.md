@@ -83,6 +83,22 @@ Changed files are classified into preflight artifact types: `openapi`/`swagger` 
 `*-api.*`, `api/*`), `graphql` (`*.graphql|gql`), `grpc` (`*.proto`), `asyncapi`, `mcp_manifest`.
 A diff that changes no contract file passes with `no_contract_changes` (nothing to govern).
 
+## Releasing
+
+This Action is consumed by tag, not from a registry: a release is a `package.json` bump in its own
+commit, a `vX.Y.Z` tag, and moving the floating `v0` tag. Nothing in that path reads `CHANGELOG.md`,
+which is how `v0.5.0`, `v0.6.0` and `v0.7.0` were each tagged with no section — two of them without
+GitHub release notes either, leaving `git log` as the only record.
+
+Before tagging:
+
+```bash
+npm run release:check   # fails if CHANGELOG.md has no "## <package.json version>" heading
+```
+
+CI runs the same check on every push and pull request, so a bump commit that omits the section fails
+when it lands rather than at tag time.
+
 ## Dependencies
 
 Zero runtime dependencies — Node builtins only, plus a vendored, byte-identical copy of the frozen

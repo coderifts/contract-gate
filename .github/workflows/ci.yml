@@ -27,3 +27,10 @@ jobs:
       # The only gate this repo defines. node --test discovers test/*.test.js.
       - name: Test (node --test)
         run: npm test
+
+      # v0.5.0, v0.6.0 and v0.7.0 were all tagged with no CHANGELOG section. This repo releases
+      # by bumping package.json in its own commit and moving a tag, and nothing in that path
+      # read the CHANGELOG — so the omission was free at the time and expensive afterwards.
+      # Running it here catches the bump commit when it lands.
+      - name: CHANGELOG names the current version
+        run: npm run release:check

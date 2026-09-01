@@ -13,7 +13,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "release:check": "node scripts/assert-changelog-version.js"
   },
   "files": [
     "action.yml",

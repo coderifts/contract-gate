@@ -32,6 +32,72 @@
 - The vendored verify core (`src/verify.js` `b1d87994…`, `src/arity.js`) and the deny-remedy
   builder are untouched.
 
+## 0.7.0
+
+Source: the GitHub release notes for `v0.7.0`, plus the commits in `v0.6.0..v0.7.0`.
+
+### Security
+
+- **Receipts signed by a revoked key verified as current.** Versions 0.2.1 through 0.6.0 vendored a
+  verify core that read key status only for `retired`. With a pinned keyring, a receipt signed by a
+  key the registry marked `revoked` — or carrying `revoked_at`, or an unknown status — still
+  verified as current, so the gate could pass a merge on a withdrawn key. 0.7.0 vendors the current
+  receipt-verifier core (sha256 `b1d87994…`) and pins it by digest and by revocation/retirement test
+  vectors. Consumers on `@v0` received this when the tag moved. (`f3e924d`)
+
+### Added
+
+- A DSSE/in-toto envelope is accepted as receipt input; verification is unchanged — the envelope is
+  unwrapped to the compact token and the same checks decide. (`3c56e8c`, advertised in `db2ec4b`)
+- A machine-readable remedy (`deny-remedy.v1`) in the check-run output and PR comment on failure;
+  the conclusion is unchanged. (`cf78745`)
+
+## 0.6.0
+
+No GitHub release notes exist for this tag. The entries below are the changes named by the commits
+in `v0.5.0..v0.6.0`.
+
+### Changes (from commit history)
+
+- Verify `cr.exec.v2` grants; fetch a per-PR grant from a signed PR comment bound to `head_sha`.
+  (`551328c`)
+- Ship `LICENSE` in `files[]`. (`1ebe3f8`)
+- Documentation: residual #2 previously named the defect and stopped. It now states that
+  issuer-pinning does not fix it and why — `github-actions[bot]` is shared by every workflow — that
+  the App already posts this same check name and derives its verdict server-side, that what the App
+  cannot do is conclude failure under the phase-1 clamp, and that forwarding a CI verdict would move
+  the attribution without moving the trust. (`ff4198c`)
+
+## 0.5.0
+
+No GitHub release notes exist for this tag. The entries below are the changes named by the commits
+in `v0.4.0..v0.5.0`.
+
+### Changes (from commit history)
+
+- `require-grant` now verifies the token and derives the governed set. The previous round accepted a
+  `grant_result` on trust while ENFORCEMENT.md described "a valid grant"; the token is now parsed as
+  `cr.exec.v1`, its kid resolved against the pinned keyring with no network fetch, its Ed25519
+  signature checked, and its `exp`/`iat` evaluated with the shipped leeway — by calling `verify.js`'s
+  `resolveEntry` / `isExpiredAt` / `loadKeyring` rather than adding a second crypto path.
+  `deriveStatus` is deliberately not called: it returns `RETIRED_KEY_VALID_AT_ISSUE` as a passing
+  class, and for grants a retired kid is never live permission. The governed set is derived from the
+  diff via the single classifier, and unreadable entries are carried rather than dropped. Two
+  defects were found using real tokens, including a status map keyed on a `GRANT_MALFORMED` value the
+  kernel never emits. 88 → 105 tests. (`c63e429`)
+- `require-grant` introduced as the store-side gate, default `false`. Recomputes the after-content
+  hash from the diff and matches it against the supplied grant, with the hasher mirrored from the app
+  and tests asserting byte-identity against the app's implementation. Six distinct failure classes,
+  with `path_unreadable` as an undecidable that outranks a valid grant. Three residuals are stated in
+  code and in ENFORCEMENT.md: pre-receive hooks are unreachable on github.com; the check does not
+  carry App identity (`github-token` defaults to `github.token`, so runs are attributed to
+  `github-actions[bot]`); and the gate evaluates merges rather than pushes. 68 → 88 tests. (`b76ea41`)
+- Documentation: the tagline said this Action "blocks a merge" and that "an in-process agent cannot
+  bypass" it, both unconditional. It now states the condition — marked required in branch protection,
+  the failing check blocks; on its own it posts a Check Run and nothing more — and the residual, that
+  an admin with `enforce_admins: false` can still merge past it. SECURITY.md gains the
+  artifact-is-not-the-contract boundary. (`5a1195f`)
+
 ## 0.4.0
 
 ### Added
