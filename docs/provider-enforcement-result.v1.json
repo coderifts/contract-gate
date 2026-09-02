@@ -2,47 +2,120 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coderifts.com/schemas/provider-enforcement-result.v1.json",
   "title": "provider-enforcement-result.v1",
-  "description": "What a repository host's enforcement was measured to do — not what it is configured to do. Every field is a readback of provider state or the recorded result of the negative test in test/negative-provider-enforcement.md. DRAFT: nothing produces or consumes this yet.",
+  "description": "What a repository host's enforcement was measured to do \u2014 not what it is configured to do. Every field is a readback of provider state or the recorded result of the negative test in test/negative-provider-enforcement.md. DRAFT: nothing produces or consumes this yet.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["provider", "mode", "required_check", "readback", "negative_test", "bypass_policy", "statement"],
+  "required": [
+    "provider",
+    "mode",
+    "required_check",
+    "readback",
+    "negative_test",
+    "bypass_policy",
+    "statement"
+  ],
   "properties": {
     "provider": {
       "description": "The repository host the measurement was taken on.",
-      "enum": ["github", "gitlab", "bitbucket"]
+      "enum": [
+        "github",
+        "gitlab",
+        "bitbucket"
+      ]
     },
     "mode": {
       "description": "How the gate's verdict is bound to the merge decision. 'app' = a check-run from an app installation; 'sha_pinned_workflow' = a workflow pinned to a commit; 'none' = nothing binds it, including 'not implemented for this provider'.",
-      "enum": ["app", "sha_pinned_workflow", "none"]
+      "enum": [
+        "app",
+        "sha_pinned_workflow",
+        "none"
+      ]
     },
     "required_check": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "bound_to_source", "posters"],
+      "required": [
+        "name",
+        "bound_to_source",
+        "posters",
+        "bound_app_id"
+      ],
       "properties": {
         "name": {
-          "description": "The required status-check context string, exactly as branch protection stores it.",
-          "type": "string"
+          "description": "The required status-check context string, exactly as branch protection stores it. NULLABLE since the producer landed (1262): with no required check configured there is no name to report, and inventing a placeholder would make an absent requirement look like a named one.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "bound_to_source": {
-          "description": "Whether the requirement names an app_id. false means name-only matching: any poster using that name satisfies it. 'unknown' is for providers whose API does not report a binding — never a guess.",
-          "oneOf": [{ "type": "boolean" }, { "const": "unknown" }]
+          "description": "Whether the requirement names an app_id. false means name-only matching: any poster using that name satisfies it. 'unknown' is for providers whose API does not report a binding \u2014 never a guess.",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unknown"
+            }
+          ]
         },
         "posters": {
-          "description": "App slugs observed posting this exact context name on the measured head. More than one is why readback.status can be INDETERMINATE.",
           "type": "array",
-          "items": { "type": "string" }
+          "description": "Who actually posted a check run under the required context on this head. Widened from string[] when the producer landed: an app SLUG alone cannot be compared with `bound_app_id`, so a slug-only list could not answer \"is the poster the bound app?\" \u2014 the question the document exists to answer.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "app_slug",
+              "app_id",
+              "conclusion"
+            ],
+            "properties": {
+              "app_slug": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "app_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "conclusion": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "bound_app_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "The app id the requirement is bound to, or null when the requirement is NAME-ONLY. Added when the producer landed (1262): `bound_to_source` says whether a binding exists, this says to WHAT. Without it a reader cannot tell one repository's binding from another's, and cannot check that the poster below is the bound app."
         }
       }
     },
     "readback": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "evidence"],
+      "required": [
+        "status",
+        "evidence"
+      ],
       "properties": {
         "status": {
           "description": "EXACT = one poster carries the required name. INDETERMINATE = several do, and which one satisfied the requirement cannot be read back. ABSENT = nobody posted it.",
-          "enum": ["EXACT", "INDETERMINATE", "ABSENT"]
+          "enum": [
+            "EXACT",
+            "INDETERMINATE",
+            "ABSENT"
+          ]
         },
         "evidence": {
           "description": "The API reads the status was derived from. Free-form, but it must be something a reader can re-run.",
@@ -53,27 +126,50 @@
     "negative_test": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status"],
+      "required": [
+        "status"
+      ],
       "properties": {
         "status": {
           "description": "PASSED = a foreign poster could NOT satisfy the requirement. FAILED = it could. NOT_RUN = the procedure has not been executed; it is never inferred from configuration.",
-          "enum": ["PASSED", "FAILED", "NOT_RUN"]
+          "enum": [
+            "PASSED",
+            "FAILED",
+            "NOT_RUN"
+          ]
         },
         "procedure": {
           "description": "Path or URL of the procedure that produced the status.",
           "type": "string"
         },
-        "observed_at": { "type": "string", "format": "date-time" }
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Full RFC 3339 date-time: a bare date cannot say how stale a destructive observation is within the day it was taken."
+        }
       }
     },
     "bypass_policy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enforce_admins"],
+      "required": [
+        "enforce_admins"
+      ],
       "properties": {
         "enforce_admins": {
           "description": "Whether the host applies the requirement to administrators. false means an admin merges past every row above.",
-          "oneOf": [{ "type": "boolean" }, { "const": "unknown" }]
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unknown"
+            }
+          ]
+        },
+        "strict_up_to_date": {
+          "type": "boolean",
+          "description": "required_status_checks.strict \u2014 whether a branch must be up to date before merging. A measured bypass-adjacent fact: with it off, a check that passed against a stale base can satisfy the requirement."
         }
       }
     },

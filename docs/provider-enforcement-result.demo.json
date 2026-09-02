@@ -1,0 +1,31 @@
+{
+  "provider": "github",
+  "mode": "app",
+  "required_check": {
+    "name": "CodeRifts / contract-gate",
+    "bound_to_source": true,
+    "bound_app_id": 15368,
+    "posters": [
+      {
+        "app_slug": "coderifts",
+        "app_id": 15368,
+        "conclusion": "success"
+      }
+    ]
+  },
+  "readback": {
+    "status": "EXACT",
+    "evidence": "CodeRifts / contract-gate: EXACT, bound_app_id=15368, posters=[coderifts#15368]"
+  },
+  "negative_test": {
+    "status": "PASSED",
+    "observed_at": "2026-09-02T00:00:00Z",
+    "procedure": "Two attempts, both refused. (1) A USER token POSTed a check-run under the required context name to the PR head — GitHub answered 403 (only a GitHub App may create check runs), so a party other than the bound App cannot satisfy the check by name. (2) With the required check unsatisfied, the PR reported mergeStateStatus BLOCKED and the merge button was unavailable. Recorded rather than re-run: both steps mutate a real repository, which a read-only producer must not do."
+  },
+  "bypass_policy": {
+    "enforce_admins": true,
+    "strict_up_to_date": false
+  },
+  "statement": "Every required context was satisfied by exactly one check run, so the readback is EXACT: the run that satisfied the requirement is identifiable. Every required context is bound to a source app id, so it cannot be satisfied by name alone. enforce_admins is on, so administrators are subject to the same requirement.",
+  "not_implemented": "This document describes GitHub only. GitLab and Bitbucket have no native identity binding for a check result, so an equivalent document for them would report mode \"none\" — the CodeRifts layer there is NOT_VERIFIED provider-side."
+}

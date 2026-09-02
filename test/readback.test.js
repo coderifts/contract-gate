@@ -123,3 +123,111 @@ describe('readback — the rendering names the gap in words', () => {
     assert.match(text, /Name-only contexts can be satisfied by any poster/);
   });
 });
+
+// ── 1262 — the PRODUCER ──────────────────────────────────────────────────────
+//
+// provider-enforcement-result.v1 had a schema and a hand-written example and no producer, so the
+// one document that states what a provider enforces was the one nobody measured. These tests run
+// the real construction over a rollup fixture — the same pure path `--result` uses.
+describe('buildResult — provider-enforcement-result.v1 from a live readback', () => {
+  const { buildResult, NEGATIVE_TEST } = require('../scripts/readback.js');
+  const Ajv = require('/Users/zsobrakpeter/coderifts-app/node_modules/ajv/dist/2020');
+  const schema = require('../docs/provider-enforcement-result.v1.json');
+  const validate = new Ajv({ strict: false, allErrors: true }).compile(schema);
+
+  const boundRollup = () => analyzeReadback({
+    protection: {
+      enforce_admins: { enabled: true },
+      required_status_checks: {
+        strict: false,
+        checks: [{ context: 'CodeRifts / contract-gate', app_id: 15368 }],
+      },
+    },
+    checkRuns: [{
+      name: 'CodeRifts / contract-gate',
+      conclusion: 'success',
+      app: { slug: 'coderifts', id: 15368 },
+    }],
+    expectApp: 'coderifts',
+  });
+
+  it('a BOUND, EXACT rollup produces a schema-valid app-mode document', () => {
+    const doc = buildResult(boundRollup(), { expectApp: 'coderifts' });
+    assert.equal(validate(doc), true, JSON.stringify(validate.errors));
+    assert.equal(doc.provider, 'github');
+    assert.equal(doc.mode, 'app');
+    assert.equal(doc.required_check.bound_to_source, true);
+    assert.equal(doc.required_check.bound_app_id, 15368);
+    assert.equal(doc.readback.status, 'EXACT');
+    assert.equal(doc.bypass_policy.enforce_admins, true);
+    // The poster must be comparable with the binding — that is the question the doc answers.
+    assert.equal(doc.required_check.posters[0].app_id, doc.required_check.bound_app_id);
+  });
+
+  it('a NAME-ONLY requirement is reported as mode none, and the statement says why', () => {
+    const analysis = analyzeReadback({
+      protection: {
+        enforce_admins: { enabled: false },
+        required_status_checks: { strict: false, contexts: ['CodeRifts / contract-gate'] },
+      },
+      checkRuns: [{ name: 'CodeRifts / contract-gate', conclusion: 'success', app: { slug: 'x', id: 1 } }],
+    });
+    const doc = buildResult(analysis);
+    assert.equal(validate(doc), true, JSON.stringify(validate.errors));
+    assert.equal(doc.mode, 'none', 'a name-only requirement is not app-bound enforcement');
+    assert.equal(doc.required_check.bound_app_id, null);
+    assert.match(doc.statement, /name-only/);
+    assert.match(doc.statement, /enforce_admins is OFF/);
+  });
+
+  it('NO required check at all → mode none, readback ABSENT, and it says the door is open', () => {
+    const doc = buildResult(analyzeReadback({
+      protection: { enforce_admins: { enabled: false }, required_status_checks: null },
+      checkRuns: [],
+    }));
+    assert.equal(validate(doc), true, JSON.stringify(validate.errors));
+    assert.equal(doc.mode, 'none');
+    assert.equal(doc.readback.status, 'ABSENT');
+    assert.match(doc.statement, /nothing at the provider prevents a merge/);
+  });
+
+  it('TWO posters → INDETERMINATE, never EXACT', () => {
+    const doc = buildResult(analyzeReadback({
+      protection: {
+        enforce_admins: { enabled: true },
+        required_status_checks: { strict: false, checks: [{ context: 'c', app_id: 7 }] },
+      },
+      checkRuns: [
+        { name: 'c', conclusion: 'success', app: { slug: 'a', id: 7 } },
+        { name: 'c', conclusion: 'success', app: { slug: 'b', id: 9 } },
+      ],
+    }));
+    assert.equal(validate(doc), true, JSON.stringify(validate.errors));
+    assert.equal(doc.readback.status, 'INDETERMINATE');
+    assert.match(doc.statement, /not EXACT/);
+  });
+
+  it('the negative test is CARRIED and DATED — never silently claimed', () => {
+    const doc = buildResult(boundRollup(), { expectApp: 'coderifts' });
+    assert.equal(doc.negative_test.status, 'PASSED');
+    assert.equal(doc.negative_test.observed_at, NEGATIVE_TEST.observed_at);
+    assert.match(doc.negative_test.observed_at, /^\d{4}-\d{2}-\d{2}T/, 'RFC 3339 date-time');
+    // It must say it was recorded rather than re-run — a producer that silently emitted PASSED
+    // for a destructive test it never performed is the failure this schema exists to prevent.
+    assert.match(doc.negative_test.procedure, /Recorded rather than re-run/);
+    assert.match(doc.negative_test.procedure, /403/);
+    assert.match(doc.negative_test.procedure, /BLOCKED/);
+  });
+
+  it('the committed demo document is exactly what the producer emits, and validates', () => {
+    const demo = require('../docs/provider-enforcement-result.demo.json');
+    assert.equal(validate(demo), true, JSON.stringify(validate.errors));
+    assert.deepEqual(demo, buildResult(boundRollup(), { expectApp: 'coderifts' }));
+  });
+
+  it('GitLab / Bitbucket are NAMED as unimplemented, not left to inference', () => {
+    const doc = buildResult(boundRollup(), { expectApp: 'coderifts' });
+    assert.match(doc.not_implemented, /GitLab and Bitbucket/);
+    assert.match(doc.not_implemented, /NOT_VERIFIED/);
+  });
+});
