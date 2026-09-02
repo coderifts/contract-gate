@@ -75,6 +75,8 @@ async function runGate({
   grantKeyringPath = null,
   grantOperation = 'merge',
   grantComments = null,
+  bundlePath = null,
+  bundleSlotKeysPath = null,
 }) {
   const emitCheck = async (conclusion, title, summary, text = null) => {
     if (!githubToken || !owner || !repo || !headSha) { log(`[check skipped] ${conclusion}: ${title}`); return; }
@@ -160,6 +162,35 @@ async function runGate({
       }
     }
 
+    // ── crbundle.v1 input (1261) ────────────────────────────────────────────────────────────
+    //
+    // Read from a FILE path, not from an inline string: a bundle carries several signed tokens and
+    // is far past a sensible Action-input size, and a workflow that already produced one has it on
+    // disk. Unreadable or unparseable is a REFUSAL, not a skip — a gate asked to check a bundle
+    // that then quietly checks nothing is the failure mode this whole item is about.
+    let proofBundle = null;
+    let bundleOpts = null;
+    if (bundlePath) {
+      try {
+        proofBundle = JSON.parse(fs.readFileSync(bundlePath, 'utf8'));
+      } catch (err) {
+        const reason = 'bundle_unreadable';
+        const summary = `proof bundle at ${bundlePath} could not be read or parsed: ${String((err && err.message) || 'unknown').slice(0, 160)}`;
+        await emitCheck('failure', 'CodeRifts contract gate: failed', summary);
+        return { exitCode: 1, gate: { pass: false, reason, summary }, artifactCount: 0 };
+      }
+      if (bundleSlotKeysPath) {
+        try {
+          bundleOpts = JSON.parse(fs.readFileSync(bundleSlotKeysPath, 'utf8'));
+        } catch (err) {
+          const reason = 'bundle_slot_keys_unreadable';
+          const summary = `bundle slot keys at ${bundleSlotKeysPath} could not be read or parsed: ${String((err && err.message) || 'unknown').slice(0, 160)}`;
+          await emitCheck('failure', 'CodeRifts contract gate: failed', summary);
+          return { exitCode: 1, gate: { pass: false, reason, summary }, artifactCount: 0 };
+        }
+      }
+    }
+
     const gate = evaluateGate({
       preflightResponse, keyring, headSha, expectedContext,
       require_verified_monitoring: requireVerifiedMonitoring === true,
@@ -169,6 +200,8 @@ async function runGate({
       grant_result: grantResult,
       governed_artifacts: governedArtifacts,
       grant_operation: grantOperation,
+      proof_bundle: proofBundle,
+      bundle_opts: bundleOpts,
       repository: context.repository,
     });
 
@@ -205,6 +238,8 @@ async function main() {
     executionGrant: process.env['INPUT_EXECUTION-GRANT'] || null,
     grantKeyringPath: process.env['INPUT_GRANT-KEYRING'] || null,
     grantOperation: process.env['INPUT_GRANT-OPERATION'] || 'merge',
+    bundlePath: process.env['INPUT_BUNDLE'] || null,
+    bundleSlotKeysPath: process.env['INPUT_BUNDLE-SLOT-KEYS'] || null,
   });
   process.exit(res.exitCode);
 }

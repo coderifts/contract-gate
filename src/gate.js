@@ -22,6 +22,7 @@ const {
   STATUSES: MON_STATUSES,
 } = require('./monitoring-attestation');
 const { evaluateGrantCoverage } = require('./grant-coverage.js');
+const { evaluateBundle } = require('./bundle-gate.js');
 const { buildDenyRemedy, denyErrorForReason } = require('./deny-remedy.js');
 
 // Execution actions that permit a merge. STOP (BLOCK) and REQUEST_APPROVAL (REQUIRE_APPROVAL) do not.
@@ -61,6 +62,10 @@ function mismatchReason(envelope, expected, envelopeKey, expectedKey, reason) {
  *   Unsigned JSON is NOT accepted under the flag (no silent fallback).
  * @param {string} [o.monitoring_attestation]  cr.monitor.attest.v1 token string
  * @param {object} [o.monitoring_keyring]  { keys: [...] } local registry document
+ * @param {object} [o.proof_bundle]     a parsed cr.bundle.v1 document (1261). ADDITIVE: absent
+ *   means every path below behaves exactly as it did before this input existed.
+ * @param {object} [o.bundle_opts]      per-slot verification material, forwarded to the vendored
+ *   library UNCHANGED. Keys never come from the bundle itself.
  * @param {number} [o.now]              clock override (tests)
  * @returns {{ pass:boolean, conclusion:'success'|'failure', reason:string,
  *             decision:(string|null), executionAction:(string|null), receiptStatus:(string|null),
@@ -76,6 +81,8 @@ function evaluateGate({
   governed_artifacts = null,
   grant_operation = 'merge',
   repository = null,
+  proof_bundle = null,
+  bundle_opts = null,
 }) {
   // The refusal, plus the next step when this reason maps to one of the three
   // classes the schema defines. A reason outside that map (verify_threw,
@@ -104,6 +111,9 @@ function evaluateGate({
       receiptStatus: extra.receiptStatus ?? null, headSha,
       ...(remedy ? { remedy } : {}),
       ...(extra.nextStep ? { nextStep: extra.nextStep } : {}),
+      // 1261: a bundle refusal carries the per-slot classes. Additive — only present when a
+      // bundle was supplied, so no existing failure shape changes.
+      ...(extra.bundle ? { bundle: extra.bundle } : {}),
       summary: buildSummary({ pass: false, reason, headSha, ...extra, remedy }),
     };
   };
@@ -248,10 +258,38 @@ function evaluateGate({
     }
   }
 
+  // ── crbundle.v1 (1261) ────────────────────────────────────────────────────────────────────
+  //
+  // ADDITIVE AND LAST. A run that supplies no bundle never reaches this block, so every existing
+  // consumer's verdict is byte-identical. A run that supplies one has asked for the stronger
+  // statement, and the gate makes it: the merge slots must be PROVEN, and anything else the
+  // bundle carries is NAMED rather than counted.
+  //
+  // It runs AFTER the receipt and grant checks rather than instead of them. A bundle is additional
+  // evidence about the same merge, not a second way to satisfy the gate — accepting a bundle in
+  // place of the receipt path would let a holder choose the easier of two doors.
+  let bundleReport = null;
+  if (proof_bundle !== null && proof_bundle !== undefined) {
+    const graded = evaluateBundle(proof_bundle, bundle_opts || {});
+    bundleReport = {
+      state: graded.bundleState, classes: graded.classes,
+      proven: graded.proven, reported: graded.reported, summary: graded.summary,
+    };
+    if (!graded.ok) {
+      return fail(graded.reason, {
+        receiptStatus: result.status, decision, executionAction,
+        why: graded.summary,
+        bundle: bundleReport,
+      });
+    }
+  }
+
   return {
     pass: true, conclusion: 'success', reason: 'signed_allow_for_diff',
     decision, executionAction, receiptStatus: result.status, headSha,
-    summary: buildSummary({ pass: true, reason: 'signed_allow_for_diff', decision, executionAction, receiptStatus: result.status, headSha }),
+    ...(bundleReport ? { bundle: bundleReport } : {}),
+    summary: buildSummary({ pass: true, reason: 'signed_allow_for_diff', decision, executionAction, receiptStatus: result.status, headSha })
+      + (bundleReport ? `\n\nProof bundle: ${bundleReport.summary}` : ''),
   };
 }
 
