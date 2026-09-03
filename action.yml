@@ -24,6 +24,15 @@ inputs:
       in branch protection.
     required: false
     default: 'CodeRifts / contract-gate'
+  post-check-run:
+    description: >-
+      Whether this Action posts its own Check Run. Default true. Set to the exact string 'false'
+      where the CodeRifts App webhook already posts the required check: the Action runs under the
+      generic GitHub Actions identity, so a check it posts under the required name comes from a
+      DIFFERENT issuer than the App's, and a readback cannot tell which one satisfied the
+      requirement. Only 'false' disables it; a typo leaves the check posting.
+    required: false
+    default: 'true'
   require-verified-monitoring:
     description: 'When true, CONTINUE_WITH_MONITORING passes only if a cr.monitor.attest.v1 token verifies offline (MON_ATTEST_VALID or retired-in-window) AND delivery_status is delivered_acked. Unsigned JSON is not accepted. Default false (existing consumers unchanged).'
     required: false

@@ -413,3 +413,66 @@ describe('1329 — rulesets are read, and UNREADABLE is not ABSENT', () => {
     assert.match(schema.description, /UNION of branch protection and any/);
   });
 });
+
+/**
+ * 1334 — the Action must be able to post NOTHING where the App already posts the required check.
+ *
+ * MEASURED on coderifts/demo PR#4 (2026-09-03): three contract-gate check-runs on one head, two of
+ * them from the generic Actions issuer. Dropping the `check-name` override does not fix it — the
+ * default name is the same string the App posts, so the Action would post a same-named check under
+ * a different issuer, which is the INDETERMINATE case this repo's readback exists to name.
+ */
+describe('1334 — post-check-run opt-out', () => {
+  const { runGate } = require('../src/index');
+
+  const baseArgs = () => {
+    const posted = [];
+    return {
+      posted,
+      args: {
+        apiKey: 'k', apiUrl: 'https://example.invalid', githubToken: 't',
+        owner: 'o', repo: 'r', baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), cwd: process.cwd(),
+        postCheckRunImpl: async (o) => { posted.push(o); return { ok: true, status: 201 }; },
+        fetchImpl: async () => { throw new Error('no network in this test'); },
+        log: () => {},
+      },
+    };
+  };
+
+  it('posts by default — existing consumers are unchanged', async () => {
+    const { posted, args } = baseArgs();
+    await runGate(args).catch(() => {});
+    assert.ok(posted.length > 0, 'the default must keep posting the check');
+  });
+
+  it('postCheckRun:false posts NOTHING, even on the failure path', async () => {
+    const { posted, args } = baseArgs();
+    await runGate({ ...args, postCheckRun: false }).catch(() => {});
+    assert.deepEqual(posted, [], 'a competing check-run was posted despite the opt-out');
+  });
+
+  it('only the exact string "false" disables it — a typo must not remove the check', () => {
+    // Same bar as MERGEGATE_ENFORCE in the app: one unambiguous value, because the failure mode of
+    // a typo here is a gate that silently stops producing its own evidence.
+    //
+    // Asserted against the SOURCE, not against a copy of the expression. The first version of this
+    // test re-implemented the check inline and passed while the real one was replaced with
+    // `!process.env[...]` — a test that graded its own restatement.
+    const fs2 = require('node:fs');
+    const src = fs2.readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    const m = /postCheckRun:\s*(.+),\n/.exec(src.slice(src.indexOf("INPUT_POST-CHECK-RUN") - 200));
+    assert.ok(m, 'could not locate the env read for post-check-run');
+    const expr = m[1];
+    assert.match(expr, /toLowerCase\(\)\s*!==\s*'false'/,
+      `the env read is \`${expr}\` — it must compare against the exact string 'false', so that '0', `
+      + "'no' and '' keep the check posting");
+  });
+
+  it('action.yml documents WHY, not just that it exists', () => {
+    const fs2 = require('node:fs');
+    const yml = fs2.readFileSync(require('node:path').join(__dirname, '..', 'action.yml'), 'utf8');
+    assert.match(yml, /post-check-run:/);
+    assert.match(yml, /generic GitHub Actions identity/);
+    assert.match(yml, /cannot tell which one satisfied/);
+  });
+});

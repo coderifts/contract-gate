@@ -77,8 +77,29 @@ async function runGate({
   grantComments = null,
   bundlePath = null,
   bundleSlotKeysPath = null,
+  // 1334 — default TRUE so every existing consumer is byte-identical.
+  postCheckRun: postCheckRun_ = true,
 }) {
   const emitCheck = async (conclusion, title, summary, text = null) => {
+    // 1334 — DELIBERATE opt-out, distinct from "we had no token".
+    //
+    // MEASURED on coderifts/demo PR#4 (2026-09-03): three contract-gate check-runs on one head.
+    //   CodeRifts / contract-gate (Action)   app 15368  — this Action, via check-name override
+    //   contract-gate (Action)               app 15368  — the workflow JOB's own check
+    //   CodeRifts / contract-gate            app 2860592 — the App webhook: the REQUIRED one
+    // The first is redundant: the App webhook already posts the required context under its own
+    // identity. Worse, it cannot be fixed by dropping the override — the default name is the SAME
+    // string the App posts, so the Action would then post a same-named check under a DIFFERENT
+    // issuer (15368), which readback.js grades INDETERMINATE: two posters, and which one satisfied
+    // the requirement cannot be read back.
+    //
+    // So the Action must post NOTHING where the App covers the check. `post-check-run: false` says
+    // that, and says it distinctly from the token-missing skip below — an operator reading the log
+    // must be able to tell "configured not to" from "could not".
+    if (postCheckRun_ === false) {
+      log(`[check not posted — post-check-run:false] ${conclusion}: ${title}`);
+      return;
+    }
     if (!githubToken || !owner || !repo || !headSha) { log(`[check skipped] ${conclusion}: ${title}`); return; }
     try {
       const r = await postCheckRunImpl({ token: githubToken, owner, repo, headSha, conclusion, title, summary, text, checkName, fetchImpl });
@@ -229,6 +250,10 @@ async function main() {
     apiUrl: process.env['INPUT_API-URL'] || 'https://app.coderifts.com',
     githubToken: process.env['INPUT_GITHUB-TOKEN'] || process.env.GITHUB_TOKEN,
     checkName: process.env['INPUT_CHECK-NAME'] || undefined,
+    // Only the exact string 'false' turns it off — same bar as MERGEGATE_ENFORCE in the app.
+    // Anything else (unset, '0', 'no') keeps the check posting, so a typo cannot silently
+    // remove the gate's own check-run.
+    postCheckRun: String(process.env['INPUT_POST-CHECK-RUN'] || '').toLowerCase() !== 'false',
     owner: ev.owner, repo: ev.repo, baseSha: ev.baseSha, headSha: ev.headSha,
     cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
     requireVerifiedMonitoring: parseBoolInput(process.env['INPUT_REQUIRE-VERIFIED-MONITORING'], false),
