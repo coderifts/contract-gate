@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coderifts.com/schemas/provider-enforcement-result.v1.json",
   "title": "provider-enforcement-result.v1",
-  "description": "What a repository host's enforcement was measured to do \u2014 not what it is configured to do. Every field is a readback of provider state or the recorded result of the negative test in test/negative-provider-enforcement.md. DRAFT: nothing produces or consumes this yet.",
+  "description": "What a repository host's enforcement was measured to do \u2014 not what it is configured to do. Every field is a readback of provider state or the recorded result of the negative test in test/negative-provider-enforcement.md. PRODUCER: scripts/readback.js --result (1262) fills this from a live read; `negative_test` is CARRIED from a dated observation because it is destructive and a read-only producer must not run it. `ruleset_binding` (1329) is the second, independent source of the same requirement \u2014 a repository's rules are the UNION of branch protection and any active rulesets, so a document that reports only the first can describe a requirement that is not the one gating the merge.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -181,6 +181,48 @@
     "not_implemented": {
       "description": "Present when mode is 'none' because the provider is unsupported rather than unbound. States that plainly instead of leaving the reader to infer it from empty fields.",
       "type": "string"
+    },
+    "ruleset_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the /rulesets API says about the required check. Separate from `required_check`, which reads classic branch protection: a repository may carry both, and they can disagree.",
+      "required": [
+        "status",
+        "requirements",
+        "cross_check"
+      ],
+      "properties": {
+        "status": {
+          "description": "BOUND = every active ruleset requirement names an integration_id. NAME_ONLY = at least one does not, so any issuer can satisfy it. ABSENT = rulesets were READ and none requires this context. UNREADABLE = the API could not be read \u2014 NOT evidence of absence, and never to be rendered as one.",
+          "enum": [
+            "BOUND",
+            "NAME_ONLY",
+            "ABSENT",
+            "UNREADABLE"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why the status is UNREADABLE. Null otherwise."
+        },
+        "requirements": {
+          "type": "array",
+          "description": "One row per required_status_checks entry across all rulesets, active or not. `active` records whether its ruleset is enforcing; `bypass_actor_count` records how many actors may skip it, because an active ruleset with bypass actors is advisory for them.",
+          "items": {
+            "type": "object"
+          }
+        },
+        "cross_check": {
+          "type": "array",
+          "description": "Per active requirement: did the bound issuer actually post it? BOUND_ISSUER_POSTED | POSTED_BY_OTHER_ISSUER | NOTHING_POSTED_THIS_CONTEXT. The last one is its own state on purpose: a required context nobody produces is a permanently-pending gate, which looks like enforcement and is not.",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
     }
   }
 }

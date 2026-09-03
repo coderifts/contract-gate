@@ -13,6 +13,12 @@
       }
     ]
   },
+  "ruleset_binding": {
+    "status": "UNREADABLE",
+    "reason": "caller did not request rulesets",
+    "requirements": [],
+    "cross_check": []
+  },
   "readback": {
     "status": "EXACT",
     "evidence": "CodeRifts / contract-gate: EXACT, bound_app_id=15368, posters=[coderifts#15368]"

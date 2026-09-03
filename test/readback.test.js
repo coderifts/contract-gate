@@ -231,3 +231,185 @@ describe('buildResult — provider-enforcement-result.v1 from a live readback', 
     assert.match(doc.not_implemented, /NOT_VERIFIED/);
   });
 });
+
+/**
+ * 1329 — the rulesets source.
+ *
+ * MEASURED live on coderifts/demo 2026-09-03, and the measurement is why this exists: the producer
+ * read branch protection and check-runs and never called /rulesets, so it could not see the binding
+ * that actually gates main —
+ *
+ *   ruleset 22074842 "coderifts-enforcement", enforcement: active, bypass_actors: []
+ *     required_status_checks: [{ context: "CodeRifts / contract-gate (Action)", integration_id: 15368 }]
+ *
+ * while every check-run on every PR head was posted by app 2860592 (`coderifts`) under the name
+ * "CodeRifts / contract-gate" — a DIFFERENT name and a DIFFERENT issuer. Nothing produces the
+ * required context at all.
+ */
+describe('1329 — rulesets are read, and UNREADABLE is not ABSENT', () => {
+  const {
+    analyzeRulesets, crossCheckRulesets, RULESETS, analyzeReadback, buildResult,
+  } = require('../scripts/readback');
+  // The sibling describe compiles its own validator in its own scope; this block needs one too.
+  const Ajv = require('/Users/zsobrakpeter/coderifts-app/node_modules/ajv/dist/2020');
+  const schema = require('../docs/provider-enforcement-result.v1.json');
+  const validate = new Ajv({ strict: false, allErrors: true }).compile(schema);
+
+  /** The live shape, verbatim from the API on 2026-09-03. */
+  const LIVE_RULESET = {
+    id: 22074842,
+    name: 'coderifts-enforcement',
+    enforcement: 'active',
+    bypass_actors: [],
+    rules: [{
+      type: 'required_status_checks',
+      parameters: {
+        strict_required_status_checks_policy: true,
+        required_status_checks: [
+          { context: 'CodeRifts / contract-gate (Action)', integration_id: 15368 },
+        ],
+      },
+    }],
+  };
+
+  it('null means UNREADABLE with a reason — never "no rulesets"', () => {
+    // The distinction the whole file turns on. A token without the permission would otherwise
+    // report a repository with an active blocking ruleset as unbound.
+    const r = analyzeRulesets(null);
+    assert.equal(r.status, RULESETS.UNREADABLE);
+    assert.notEqual(r.status, RULESETS.ABSENT);
+    assert.match(r.reason, /NOT evidence that no ruleset/);
+    assert.deepEqual(r.requirements, []);
+  });
+
+  it('an empty list IS absence — it was read and nothing was there', () => {
+    const r = analyzeRulesets([]);
+    assert.equal(r.status, RULESETS.ABSENT);
+    assert.equal(r.reason, null);
+  });
+
+  it('the live ruleset reads as BOUND, and carries the integration_id', () => {
+    const r = analyzeRulesets([LIVE_RULESET]);
+    assert.equal(r.status, RULESETS.BOUND);
+    assert.equal(r.requirements.length, 1);
+    const req = r.requirements[0];
+    assert.equal(req.context, 'CodeRifts / contract-gate (Action)');
+    assert.equal(req.integration_id, 15368);
+    assert.equal(req.active, true);
+    assert.equal(req.bypass_actor_count, 0);
+    assert.equal(req.ruleset_id, 22074842);
+  });
+
+  it('a requirement with no integration_id is NAME_ONLY — anyone can satisfy it', () => {
+    const nameOnly = JSON.parse(JSON.stringify(LIVE_RULESET));
+    delete nameOnly.rules[0].parameters.required_status_checks[0].integration_id;
+    assert.equal(analyzeRulesets([nameOnly]).status, RULESETS.NAME_ONLY);
+  });
+
+  it('an inactive ruleset does not make the repository BOUND', () => {
+    // `evaluate` mode gates nothing. Counting it would report enforcement that is not happening.
+    const evaluating = { ...LIVE_RULESET, enforcement: 'evaluate' };
+    const r = analyzeRulesets([evaluating]);
+    assert.equal(r.status, RULESETS.ABSENT);
+    assert.equal(r.requirements.length, 1, 'the row is still recorded, just not counted');
+    assert.equal(r.requirements[0].active, false);
+  });
+
+  describe('cross-check against who actually posted', () => {
+    it('THE LIVE STATE: nothing posts the required context', () => {
+      // Not POSTED_BY_OTHER_ISSUER — nobody posted that NAME at all. A required context nothing
+      // produces is a permanently-pending gate, which looks like enforcement and is not.
+      const rows = crossCheckRulesets(analyzeRulesets([LIVE_RULESET]), [
+        { name: 'CodeRifts / contract-gate', conclusion: 'success', app: { id: 2860592, slug: 'coderifts' } },
+      ]);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].agreement, 'NOTHING_POSTED_THIS_CONTEXT');
+      assert.equal(rows[0].posted_count, 0);
+    });
+
+    it('the bound issuer posting it is BOUND_ISSUER_POSTED', () => {
+      const rows = crossCheckRulesets(analyzeRulesets([LIVE_RULESET]), [
+        { name: 'CodeRifts / contract-gate (Action)', conclusion: 'success', app: { id: 15368, slug: 'github-actions' } },
+      ]);
+      assert.equal(rows[0].agreement, 'BOUND_ISSUER_POSTED');
+    });
+
+    it('the RIGHT NAME from the WRONG issuer is POSTED_BY_OTHER_ISSUER', () => {
+      // This is the auditor's sharper negative test, as a unit: the ruleset binds 15368, and a
+      // different app posts the same context. It must not read as satisfied.
+      const rows = crossCheckRulesets(analyzeRulesets([LIVE_RULESET]), [
+        { name: 'CodeRifts / contract-gate (Action)', conclusion: 'success', app: { id: 2860592, slug: 'coderifts' } },
+      ]);
+      assert.equal(rows[0].agreement, 'POSTED_BY_OTHER_ISSUER');
+      assert.deepEqual(rows[0].poster_app_ids, [2860592]);
+    });
+  });
+
+  it('the result document carries the binding, with UNREADABLE as a real value', () => {
+    const analysis = analyzeReadback({
+      protection: { required_status_checks: { checks: [{ context: 'x', app_id: 1 }] } },
+      checkRuns: [],
+      rulesets: [LIVE_RULESET],
+    });
+    const doc = buildResult(analysis, {});
+    assert.equal(doc.ruleset_binding.status, 'BOUND');
+    assert.equal(doc.ruleset_binding.requirements[0].integration_id, 15368);
+    assert.equal(doc.ruleset_binding.cross_check[0].agreement, 'NOTHING_POSTED_THIS_CONTEXT');
+    assert.equal(validate(doc), true, JSON.stringify(validate.errors));
+
+    // Omitting the argument is not the same as reading nothing: older callers get UNREADABLE with
+    // a reason that says so, never a false ABSENT.
+    const legacy = buildResult(analyzeReadback({
+      protection: { required_status_checks: { checks: [] } }, checkRuns: [],
+    }), {});
+    assert.equal(legacy.ruleset_binding.status, 'UNREADABLE');
+    assert.match(legacy.ruleset_binding.reason, /did not request/);
+  });
+
+  it('a 403 on /rulesets fails SOFT to UNREADABLE, never to an empty list', async () => {
+    // The most likely field case: the token can read protection and check-runs but not rulesets.
+    // Turning that into `[]` would report a repository with an active blocking ruleset as having
+    // none — the failure this whole module exists to prevent, arriving through the I/O layer.
+    const { fetchReadback } = require('../scripts/readback');
+    const json = (body) => ({ status: 200, json: async () => body });
+    const fetchImpl = async (url) => {
+      if (url.includes('/pulls/')) return json({ head: { sha: 'abc' }, base: { ref: 'main' } });
+      if (url.includes('/protection')) return json({ required_status_checks: { checks: [] } });
+      if (url.includes('/check-runs')) return json({ check_runs: [] });
+      if (url.includes('/rulesets')) return { status: 403, json: async () => ({}) };
+      throw new Error(`unexpected ${url}`);
+    };
+    const out = await fetchReadback({
+      owner: 'o', repo: 'r', pr: 1, token: 't', expectApp: null, fetchImpl,
+    });
+    assert.equal(out.rulesets.status, RULESETS.UNREADABLE);
+    assert.notEqual(out.rulesets.status, RULESETS.ABSENT);
+    assert.match(out.rulesets.reason, /NOT evidence/);
+  });
+
+  it('a ruleset that cannot be EXPANDED also fails soft — a partial list is not a list', async () => {
+    // The list endpoint returns summaries without `rules`. If expansion fails halfway, the rules
+    // we did read would under-report the binding while looking complete.
+    const { fetchReadback } = require('../scripts/readback');
+    const json = (body) => ({ status: 200, json: async () => body });
+    const fetchImpl = async (url) => {
+      if (url.includes('/pulls/')) return json({ head: { sha: 'abc' }, base: { ref: 'main' } });
+      if (url.includes('/protection')) return json({ required_status_checks: { checks: [] } });
+      if (url.includes('/check-runs')) return json({ check_runs: [] });
+      if (/\/rulesets\/\d+$/.test(url)) return { status: 404, json: async () => ({}) };
+      if (url.endsWith('/rulesets')) return json([{ id: 22074842 }]);
+      throw new Error(`unexpected ${url}`);
+    };
+    const out = await fetchReadback({
+      owner: 'o', repo: 'r', pr: 1, token: 't', expectApp: null, fetchImpl,
+    });
+    assert.equal(out.rulesets.status, RULESETS.UNREADABLE);
+  });
+
+  it('the schema no longer claims nothing produces this', () => {
+    const schema = require('../docs/provider-enforcement-result.v1.json');
+    assert.equal(/nothing produces or consumes this/.test(schema.description), false);
+    assert.match(schema.description, /PRODUCER: scripts\/readback\.js --result/);
+    assert.match(schema.description, /UNION of branch protection and any/);
+  });
+});

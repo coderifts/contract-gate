@@ -44,7 +44,107 @@ const READBACK = Object.freeze({
  * @param {Array}  o.checkRuns    GET /repos/{o}/{r}/commits/{sha}/check-runs -> .check_runs
  * @param {string} [o.expectApp]  app slug the gate posts under (e.g. 'github-actions' for the Action)
  */
-function analyzeReadback({ protection, checkRuns, expectApp = null }) {
+/**
+ * 1329 — RULESETS are a SECOND, INDEPENDENT source of the same requirement.
+ *
+ * MEASURED live on coderifts/demo 2026-09-03. This producer read branch protection and check-runs
+ * and never called the rulesets API — so it could not see the binding that actually gates main:
+ *
+ *   ruleset 22074842 "coderifts-enforcement" (active, bypass_actors: [])
+ *     required_status_checks: [{ context: "CodeRifts / contract-gate (Action)", integration_id: 15368 }]
+ *
+ * A repository can carry BOTH classic branch protection and one or more rulesets, and the rules
+ * are the UNION. A readback that reads only protection therefore reports on a requirement that may
+ * not be the one blocking the merge — the exact class of error this file exists to catch, one
+ * layer up from where it was looking.
+ *
+ * THE THIRD STATE IS NOT OPTIONAL HERE. The rulesets API needs permissions this token may not
+ * carry, and `GET /repos/{o}/{r}/rules/branch/{b}` returned 404 under a token that could still
+ * read `/rulesets`. An unreadable rulesets API must therefore be UNREADABLE, never "no rulesets" —
+ * collapsing them would report a repository with an active blocking ruleset as unbound.
+ */
+const RULESETS = Object.freeze({
+  BOUND: 'BOUND',            // a ruleset requires the context AND names an integration_id
+  NAME_ONLY: 'NAME_ONLY',    // a ruleset requires the context with no integration_id
+  ABSENT: 'ABSENT',          // rulesets were read and none requires this context
+  UNREADABLE: 'UNREADABLE',  // the API could not be read — NOT the same as ABSENT
+});
+
+/**
+ * Fold ruleset documents into the same shape `required` uses, so both sources are comparable.
+ *
+ * @param {Array|null} rulesets  expanded ruleset documents (with `.rules`), or null if unreadable
+ * @returns {{ status: string, reason: string|null, requirements: Array }}
+ */
+function analyzeRulesets(rulesets) {
+  if (rulesets == null) {
+    return {
+      status: RULESETS.UNREADABLE,
+      reason: 'the rulesets API was not read (missing permission, or the call failed) — this is '
+        + 'NOT evidence that no ruleset requires the check',
+      requirements: [],
+    };
+  }
+  const list = Array.isArray(rulesets) ? rulesets : [];
+  const requirements = [];
+  for (const rs of list) {
+    if (!rs || typeof rs !== 'object') continue;
+    // Only an ACTIVE ruleset gates a merge. `evaluate` and `disabled` are recorded, not counted.
+    const active = rs.enforcement === 'active';
+    for (const rule of (Array.isArray(rs.rules) ? rs.rules : [])) {
+      if (!rule || rule.type !== 'required_status_checks') continue;
+      const params = rule.parameters || {};
+      for (const c of (Array.isArray(params.required_status_checks) ? params.required_status_checks : [])) {
+        requirements.push({
+          ruleset_id: rs.id == null ? null : rs.id,
+          ruleset_name: rs.name || null,
+          enforcement: rs.enforcement || null,
+          active,
+          context: c && c.context ? c.context : null,
+          // The field the auditors asked about: WHICH issuer may satisfy this requirement.
+          integration_id: c && c.integration_id != null ? c.integration_id : null,
+          // A bypass list is what turns an "active" ruleset into an advisory one.
+          bypass_actor_count: Array.isArray(rs.bypass_actors) ? rs.bypass_actors.length : null,
+        });
+      }
+    }
+  }
+  const active = requirements.filter((r) => r.active);
+  if (active.length === 0) return { status: RULESETS.ABSENT, reason: null, requirements };
+  const anyUnbound = active.some((r) => r.integration_id == null);
+  return {
+    status: anyUnbound ? RULESETS.NAME_ONLY : RULESETS.BOUND,
+    reason: null,
+    requirements,
+  };
+}
+
+/**
+ * Cross-check: does the ruleset's binding agree with who ACTUALLY posted?
+ * Returns rows, never a single verdict — a repository may carry several requirements.
+ */
+function crossCheckRulesets(rulesetAnalysis, checkRuns) {
+  const runs = Array.isArray(checkRuns) ? checkRuns : [];
+  return (rulesetAnalysis.requirements || []).filter((r) => r.active).map((r) => {
+    const posted = runs.filter((x) => x && x.name === r.context);
+    const posterAppIds = [...new Set(posted.map((x) => (x.app && x.app.id) != null ? x.app.id : null))];
+    return {
+      context: r.context,
+      integration_id: r.integration_id,
+      posted_count: posted.length,
+      poster_app_ids: posterAppIds,
+      // THREE outcomes, and "nobody posted it" is its own. A required context nothing produces is
+      // a permanently-pending gate, which looks like enforcement and is not.
+      agreement: posted.length === 0
+        ? 'NOTHING_POSTED_THIS_CONTEXT'
+        : (r.integration_id != null && posterAppIds.includes(r.integration_id)
+          ? 'BOUND_ISSUER_POSTED'
+          : 'POSTED_BY_OTHER_ISSUER'),
+    };
+  });
+}
+
+function analyzeReadback({ protection, checkRuns, expectApp = null, rulesets = undefined }) {
   const rsc = (protection && protection.required_status_checks) || null;
   // `checks[]` carries the app binding; `contexts[]` is the older name-only list. Prefer checks[].
   const required = rsc && Array.isArray(rsc.checks) && rsc.checks.length > 0
@@ -82,12 +182,24 @@ function analyzeReadback({ protection, checkRuns, expectApp = null }) {
     };
   });
 
+  // 1329 — the rulesets source, folded in beside protection. `undefined` means the caller did not
+  // ask (older callers stay byte-identical); `null` means it was asked for and could not be read.
+  const rulesetAnalysis = rulesets === undefined
+    ? { status: RULESETS.UNREADABLE, reason: 'caller did not request rulesets', requirements: [] }
+    : analyzeRulesets(rulesets);
+  const rulesetCrossCheck = crossCheckRulesets(rulesetAnalysis, checkRuns);
+
   return {
     enforce_admins: !!(protection && protection.enforce_admins && protection.enforce_admins.enabled),
     strict_up_to_date: !!(rsc && rsc.strict),
     required: rows,
     // Every required context that a party other than the gate could satisfy by name alone.
     name_only_contexts: rows.filter((r) => !r.bound_to_source).map((r) => r.context),
+    // 1329 — the SECOND source of the same requirement. Rules are the union of protection and
+    // rulesets, so a readback that reports only the first can describe a requirement that is not
+    // the one gating the merge.
+    rulesets: rulesetAnalysis,
+    ruleset_cross_check: rulesetCrossCheck,
   };
 }
 
@@ -171,6 +283,15 @@ function buildResult(analysis, { expectApp = null } = {}) {
       bound_app_id: primary ? primary.bound_app_id : null,
       posters: primary ? primary.posters : [],
     },
+    // 1329 — the ruleset binding, in the result document rather than only in the console render.
+    // `status: UNREADABLE` is a real value here: a consumer must be able to tell "no ruleset
+    // requires this" from "we could not look".
+    ruleset_binding: {
+      status: (analysis.rulesets && analysis.rulesets.status) || 'UNREADABLE',
+      reason: (analysis.rulesets && analysis.rulesets.reason) || null,
+      requirements: (analysis.rulesets && analysis.rulesets.requirements) || [],
+      cross_check: analysis.ruleset_cross_check || [],
+    },
     readback: {
       status: rows.length === 0
         ? READBACK.ABSENT
@@ -250,10 +371,28 @@ async function fetchReadback({ owner, repo, pr, token, expectApp, apiUrl = DEFAU
 
   const protection = await get(`/repos/${owner}/${repo}/branches/${baseRef}/protection`);
   const runs = await get(`/repos/${owner}/${repo}/commits/${headSha}/check-runs`);
+
+  // 1329 — rulesets, read separately and FAIL-SOFT TO null (never to []). The list endpoint
+  // returns summaries without `rules`, so each ruleset is expanded; a ruleset that cannot be
+  // expanded is dropped from the list AND forces the whole read to UNREADABLE, because a partial
+  // list would under-report the binding while looking complete.
+  let rulesets = null;
+  try {
+    const summaries = await get(`/repos/${owner}/${repo}/rulesets`);
+    const expanded = [];
+    for (const rs of (Array.isArray(summaries) ? summaries : [])) {
+      if (!rs || rs.id == null) continue;
+      expanded.push(await get(`/repos/${owner}/${repo}/rulesets/${rs.id}`));
+    }
+    rulesets = expanded;
+  } catch (_) {
+    rulesets = null; // named UNREADABLE downstream — not "no rulesets"
+  }
+
   return {
     headSha,
     baseRef,
-    ...analyzeReadback({ protection, checkRuns: runs.check_runs, expectApp }),
+    ...analyzeReadback({ protection, checkRuns: runs.check_runs, expectApp, rulesets }),
   };
 }
 
@@ -296,4 +435,7 @@ async function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2));
 
-module.exports = { analyzeReadback, render, fetchReadback, buildResult, statementFor, NEGATIVE_TEST, READBACK };
+module.exports = {
+  analyzeReadback, render, fetchReadback, buildResult, statementFor,
+  analyzeRulesets, crossCheckRulesets, NEGATIVE_TEST, READBACK, RULESETS,
+};
