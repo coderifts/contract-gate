@@ -234,15 +234,76 @@ const NEGATIVE_TEST = Object.freeze({
     + 'read-only producer must not do.',
 });
 
-function statementFor({ hasRequirement, exact, boundAll, enforceAdmins }) {
+/**
+ * 1338 — THE STATEMENT READ THE WRONG SOURCE.
+ *
+ * MEASURED on coderifts/demo 2026-09-03, after classic branch protection was deleted: this
+ * producer reported `readback.status: ABSENT` and the statement "nothing at the provider prevents
+ * a merge … beside an open door", WHILE the `ruleset_binding` block in the same document reported
+ * BOUND with integration_id 2860592 and BOUND_ISSUER_POSTED. One document, two contradictory
+ * answers about the same repository.
+ *
+ * The cause: `rows` comes from classic `branches/main/protection` only. The schema's own
+ * description already says the right rule — "a repository's rules are the UNION of branch
+ * protection and any active rulesets, so a document that reports only the first can describe a
+ * requirement that is not the one gating the merge". The producer did not follow it.
+ *
+ * SO: the absence of classic protection is no longer "open door" when a ruleset binds. Classic
+ * protection stays a source, and remains the one that carries `enforce_admins` — a ruleset's
+ * bypass actors are a different mechanism and are reported separately, never folded in as if they
+ * were the same thing.
+ *
+ * @param {object} o
+ * @param {boolean} o.hasRequirement   a CLASSIC required context exists
+ * @param {string}  o.rulesetStatus    BOUND | NAME_ONLY | ABSENT | UNREADABLE
+ */
+function statementFor({ hasRequirement, exact, boundAll, enforceAdmins, rulesetStatus }) {
+  const rulesetRequires = rulesetStatus === RULESETS.BOUND || rulesetStatus === RULESETS.NAME_ONLY;
+
   // TWO DIFFERENT NOTHINGS. "no requirement configured" and "a requirement anyone can satisfy"
   // both grade mode:none, and collapsing them would tell an operator with a name-only check that
   // they have no check at all — which is not what they need to fix.
+  if (!hasRequirement && !rulesetRequires) {
+    // A THIRD nothing, and it is not the same as the other two: we may simply not have been able
+    // to look. Saying "open door" on an unread rulesets API would be the exact overclaim in the
+    // opposite direction.
+    if (rulesetStatus === RULESETS.UNREADABLE) {
+      return 'No required check is configured on the base branch, AND the rulesets API could not '
+        + 'be read — so whether anything at the provider prevents a merge is UNDECIDED here. This '
+        + 'is not evidence of an open door; it is evidence that one of the two sources was not '
+        + 'readable.';
+    }
+    return 'No required check is configured on the base branch and no active ruleset requires one, '
+      + 'so nothing at the provider prevents a merge. Whatever the gate reports, it reports it '
+      + 'beside an open door.';
+  }
+
+  // A ruleset binds and classic protection is empty. This is the state that used to be reported as
+  // an open door, and it is the opposite of one.
   if (!hasRequirement) {
-    return 'No required check is configured on the base branch, so nothing at the provider '
-      + 'prevents a merge. Whatever the gate reports, it reports it beside an open door.';
+    const bindingSentence = rulesetStatus === RULESETS.BOUND
+      ? 'The ruleset names an integration_id, so the requirement cannot be satisfied by name alone.'
+      : 'The ruleset requirement is NAME-ONLY: any party that can post a check with that name '
+        + 'satisfies it.';
+    // Kept under the schema's 400-character statement limit, measured: the first draft was 416.
+    // What was cut is the enforce_admins explanation, which belongs to bypass_policy and
+    // ruleset_binding rather than to a sentence a reader skims.
+    return 'No classic branch protection is configured, but an ACTIVE RULESET requires the check, '
+      + `so the provider does gate the merge. ${bindingSentence} `
+      + 'enforce_admins is a classic-protection field: for a ruleset-only repository see the '
+      + 'per-requirement bypass actors in ruleset_binding.';
   }
   const parts = [];
+  if (rulesetRequires) {
+    // Both sources require it — an operator who removes one still has the other.
+    //
+    // MEASURED: the statement has a 400-character schema limit and the longest existing
+    // combination is 358, so this sentence gets 42 characters. It is deliberately the shortest of
+    // the four because it is the least actionable: the three below tell an operator what to fix,
+    // this one tells them a removal will not open the door. The detail is in ruleset_binding.
+    // test/readback.test.js holds the limit across every branch so a future edit cannot overflow it.
+    parts.push('Classic protection AND a ruleset apply.');
+  }
   parts.push(exact
     ? 'Every required context was satisfied by exactly one check run, so the readback is EXACT: '
       + 'the run that satisfied the requirement is identifiable.'
@@ -267,11 +328,30 @@ function statementFor({ hasRequirement, exact, boundAll, enforceAdmins }) {
 function buildResult(analysis, { expectApp = null } = {}) {
   const rows = analysis.required || [];
   const primary = (expectApp && rows.find((r) => r.posted_by_expected_app)) || rows[0] || null;
-  const mode = rows.length === 0
-    ? 'none'
-    : (primary && primary.bound_to_source ? 'app' : 'none');
+
+  // 1338 — the SECOND source of the same requirement, read ONCE here and used by `mode`, the
+  // statement and the readback block, all three of which used to read classic protection alone.
+  // Defaults to UNREADABLE rather than ABSENT: not having been told is not the same as having
+  // looked and found nothing.
+  const rulesetStatusForDoc = (analysis.rulesets && analysis.rulesets.status) || RULESETS.UNREADABLE;
+  const rulesetRequires = rulesetStatusForDoc === RULESETS.BOUND
+    || rulesetStatusForDoc === RULESETS.NAME_ONLY;
+
+  // 1338 — `mode` read classic protection alone too, and it is the THIRD place the same mistake
+  // lived. The schema defines 'app' as "a check-run from an app installation" binds the verdict,
+  // and 'none' as "nothing binds it". A ruleset that names an integration_id binds it exactly the
+  // way classic protection with an app_id does; reporting 'none' there says the opposite of what
+  // was measured two fields below in ruleset_binding.
+  //
+  // NAME_ONLY stays 'none' on purpose: a requirement anyone can satisfy binds nothing to a source,
+  // whichever of the two mechanisms carries it.
+  const mode = rows.length > 0
+    ? (primary && primary.bound_to_source ? 'app' : 'none')
+    : (rulesetStatusForDoc === RULESETS.BOUND ? 'app' : 'none');
+
   const exact = rows.length > 0 && rows.every((r) => r.status === READBACK.EXACT);
   const boundAll = rows.length > 0 && rows.every((r) => r.bound_to_source);
+
 
   return {
     provider: 'github',
@@ -293,12 +373,22 @@ function buildResult(analysis, { expectApp = null } = {}) {
       cross_check: analysis.ruleset_cross_check || [],
     },
     readback: {
+      // 1338: ABSENT means "nothing requires this", which is a claim about the UNION. With no
+      // classic protection but a binding ruleset the honest answer is INDETERMINATE from this
+      // block's point of view — it reads check runs against classic contexts and has none to
+      // read — and ruleset_binding above carries the decided answer. Reporting ABSENT here was
+      // the half of the contradiction that a reader saw first.
       status: rows.length === 0
-        ? READBACK.ABSENT
+        ? (rulesetRequires ? READBACK.INDETERMINATE : READBACK.ABSENT)
         : (exact ? READBACK.EXACT : (rows.some((r) => r.status === READBACK.ABSENT)
           ? READBACK.ABSENT : READBACK.INDETERMINATE)),
       evidence: rows.length === 0
-        ? 'no required status checks are configured on the base branch'
+        ? (rulesetRequires
+          ? 'no CLASSIC required status checks are configured; the requirement comes from an '
+            + `active ruleset (${rulesetStatusForDoc}) — see ruleset_binding for the bound issuer `
+            + 'and whether it posted'
+          : 'no required status checks are configured on the base branch, and no active ruleset '
+            + 'requires one')
         : rows.map((r) => `${r.context}: ${r.status}`
             + `, bound_app_id=${r.bound_app_id == null ? 'null (name-only)' : r.bound_app_id}`
             + `, posters=[${r.posters.map((x) => `${x.app_slug || '?'}#${x.app_id == null ? '?' : x.app_id}`).join(', ')}]`)
@@ -314,6 +404,7 @@ function buildResult(analysis, { expectApp = null } = {}) {
       exact,
       boundAll,
       enforceAdmins: !!analysis.enforce_admins,
+      rulesetStatus: rulesetStatusForDoc,
     }),
     // Named, never omitted: a reader must not infer these from silence.
     not_implemented:
@@ -369,7 +460,24 @@ async function fetchReadback({ owner, repo, pr, token, expectApp, apiUrl = DEFAU
   const baseRef = prData.base && prData.base.ref;
   if (!headSha || !baseRef) throw new Error('could not read PR head sha / base ref');
 
-  const protection = await get(`/repos/${owner}/${repo}/branches/${baseRef}/protection`);
+  // 1329 — CLASSIC BRANCH PROTECTION MAY NOT EXIST, and its absence is not an error.
+  //
+  // MEASURED live on coderifts/demo 2026-09-03: after the rebind moved the requirement into the
+  // RULESET and classic protection was deleted, this call returns 404 "Branch not protected" and
+  // the whole producer died on it — emitting nothing for a repository whose ruleset is active,
+  // bound and gating. A readback that cannot describe the modern configuration is worse than one
+  // that describes it partially.
+  //
+  // 404 → `null` (no classic protection; rulesets may still gate). Any OTHER status still throws:
+  // a 403 means we could not look, and reporting that as "no protection" would be the same
+  // absence-vs-unreadable collapse this file refuses everywhere else.
+  let protection = null;
+  try {
+    protection = await get(`/repos/${owner}/${repo}/branches/${baseRef}/protection`);
+  } catch (err) {
+    if (!/-> HTTP 404$/.test(String(err && err.message))) throw err;
+    protection = null;
+  }
   const runs = await get(`/repos/${owner}/${repo}/commits/${headSha}/check-runs`);
 
   // 1329 — rulesets, read separately and FAIL-SOFT TO null (never to []). The list endpoint

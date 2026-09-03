@@ -180,15 +180,32 @@ describe('buildResult — provider-enforcement-result.v1 from a live readback', 
     assert.match(doc.statement, /enforce_admins is OFF/);
   });
 
-  it('NO required check at all → mode none, readback ABSENT, and it says the door is open', () => {
+  it('NO required check AND rulesets READ AND EMPTY → the door really is open', () => {
+    // 1338: "open door" is now a claim about the UNION, so it requires having LOOKED at the second
+    // source. `rulesets: []` is that look, and it found nothing.
     const doc = buildResult(analyzeReadback({
       protection: { enforce_admins: { enabled: false }, required_status_checks: null },
       checkRuns: [],
+      rulesets: [],
     }));
     assert.equal(validate(doc), true, JSON.stringify(validate.errors));
     assert.equal(doc.mode, 'none');
     assert.equal(doc.readback.status, 'ABSENT');
     assert.match(doc.statement, /nothing at the provider prevents a merge/);
+    assert.match(doc.statement, /no active ruleset requires one/);
+  });
+
+  it('NO required check and rulesets NOT READ → UNDECIDED, not an open door', () => {
+    // The caller did not ask for rulesets. Not having looked is not the same as having looked and
+    // found nothing, and this producer used to report the stronger of the two.
+    const doc = buildResult(analyzeReadback({
+      protection: { enforce_admins: { enabled: false }, required_status_checks: null },
+      checkRuns: [],
+    }));
+    assert.equal(validate(doc), true, JSON.stringify(validate.errors));
+    assert.match(doc.statement, /UNDECIDED/);
+    assert.doesNotMatch(doc.statement, /beside an open door/,
+      'an unread rulesets API was reported as an open door');
   });
 
   it('TWO posters → INDETERMINATE, never EXACT', () => {
@@ -474,5 +491,246 @@ describe('1334 — post-check-run opt-out', () => {
     assert.match(yml, /post-check-run:/);
     assert.match(yml, /generic GitHub Actions identity/);
     assert.match(yml, /cannot tell which one satisfied/);
+  });
+});
+
+/**
+ * 1329 — classic branch protection may be ABSENT, and that is a configuration, not a failure.
+ *
+ * MEASURED live on coderifts/demo 2026-09-03: after the requirement moved into the ruleset and
+ * classic protection was deleted, `GET /branches/main/protection` returns 404 "Branch not
+ * protected". The producer threw on it and emitted NOTHING for a repository whose ruleset is
+ * active, bound to 2860592, and gating — the modern configuration was the one it could not read.
+ */
+describe('1329 — a 404 on classic protection is absence, other statuses are not', () => {
+  const { fetchReadback } = require('../scripts/readback');
+  const json = (body) => ({ status: 200, json: async () => body });
+
+  const base = (protectionResponse) => async (url) => {
+    if (url.includes('/pulls/')) return json({ head: { sha: 'abc' }, base: { ref: 'main' } });
+    if (url.includes('/protection')) return protectionResponse;
+    if (url.includes('/check-runs')) {
+      return json({ check_runs: [{ name: 'CodeRifts / contract-gate', conclusion: 'success', app: { id: 2860592, slug: 'coderifts' } }] });
+    }
+    if (/\/rulesets\/\d+$/.test(url)) {
+      return json({
+        id: 22074842, name: 'coderifts-enforcement', enforcement: 'active', bypass_actors: [],
+        rules: [{ type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'CodeRifts / contract-gate', integration_id: 2860592 }] } }],
+      });
+    }
+    if (url.endsWith('/rulesets')) return json([{ id: 22074842 }]);
+    throw new Error(`unexpected ${url}`);
+  };
+
+  it('404 → the run completes and the RULESET binding is still reported', async () => {
+    const out = await fetchReadback({
+      owner: 'o', repo: 'r', pr: 1, token: 't', expectApp: 'coderifts',
+      fetchImpl: base({ status: 404, json: async () => ({ message: 'Branch not protected' }) }),
+    });
+    assert.equal(out.rulesets.status, 'BOUND', 'the modern configuration must still be read');
+    assert.equal(out.ruleset_cross_check[0].agreement, 'BOUND_ISSUER_POSTED');
+    // Classic protection genuinely absent: no requirement rows, and that is not an error.
+    assert.deepEqual(out.required, []);
+  });
+
+  it('403 STILL throws — "could not look" is not "nothing is there"', async () => {
+    // The absence-vs-unreadable line. Swallowing a 403 here would report a protected branch as
+    // unprotected, which is the collapse this module refuses everywhere else.
+    await assert.rejects(
+      fetchReadback({
+        owner: 'o', repo: 'r', pr: 1, token: 't', expectApp: null,
+        fetchImpl: base({ status: 403, json: async () => ({}) }),
+      }),
+      /HTTP 403/,
+    );
+  });
+});
+
+/**
+ * 1338 — the producer contradicted itself, measured live on coderifts/demo (2026-09-03).
+ *
+ * After classic branch protection was deleted, one document said both of these at once:
+ *
+ *   readback.status : ABSENT
+ *   statement       : "nothing at the provider prevents a merge … beside an open door"
+ *   ruleset_binding : BOUND, integration_id 2860592, BOUND_ISSUER_POSTED
+ *
+ * The cause was a source mismatch, not a logic error: `statement` and `readback` read classic
+ * `branches/main/protection` only, while enforcement had moved to a RULESET. The schema's own
+ * description already stated the rule — "a repository's rules are the UNION of branch protection
+ * and any active rulesets" — and the producer did not follow it.
+ *
+ * THE WORST CASE these tests are written against: an operator reads "open door", adds a second
+ * requirement or panics about an unprotected branch, when the branch was gated the whole time.
+ * The opposite mistake is just as bad, so the last group holds that line too.
+ */
+describe('1338 — statement and readback read the UNION, not classic protection alone', () => {
+  // Same imports the 1262 block uses: buildResult and the schema validator are scoped to their
+  // describe, not to the module.
+  const { buildResult } = require('../scripts/readback.js');
+  const Ajv = require('/Users/zsobrakpeter/coderifts-app/node_modules/ajv/dist/2020');
+  const schema = require('../docs/provider-enforcement-result.v1.json');
+  const validate = new Ajv({ strict: false, allErrors: true }).compile(schema);
+
+  const BOUND_RULESET = {
+    id: 22074842,
+    name: 'main-protection',
+    enforcement: 'active',
+    rules: [{
+      type: 'required_status_checks',
+      parameters: {
+        required_status_checks: [
+          { context: 'CodeRifts / contract-gate', integration_id: 2860592 },
+        ],
+      },
+    }],
+    bypass_actors: [],
+  };
+
+  /** The live shape after the deletion: no classic protection, one binding ruleset. */
+  function rulesetOnly(rulesets = [BOUND_RULESET]) {
+    return buildResult(analyzeReadback({
+      protection: { enforce_admins: { enabled: false }, required_status_checks: null },
+      checkRuns: [
+        { name: 'CodeRifts / contract-gate', conclusion: 'success', app: { slug: 'coderifts', id: 2860592 } },
+      ],
+      rulesets,
+    }));
+  }
+
+  it('THE FINDING: a ruleset-bound repo with no classic protection is NOT an open door', () => {
+    const doc = rulesetOnly();
+    assert.equal(validate(doc), true, JSON.stringify(validate.errors));
+    assert.doesNotMatch(doc.statement, /beside an open door/,
+      'a ruleset-gated repository was reported as unprotected');
+    assert.doesNotMatch(doc.statement, /nothing at the provider prevents a merge/);
+    assert.match(doc.statement, /ACTIVE RULESET requires the check/);
+    assert.match(doc.statement, /does gate the merge/);
+  });
+
+  it('THE FINDING: readback.status is no longer ABSENT when a ruleset binds', () => {
+    // ABSENT is a claim about the union — "nothing requires this". This block reads check runs
+    // against classic contexts and has none to read, which is INDETERMINATE, not ABSENT.
+    const doc = rulesetOnly();
+    assert.notEqual(doc.readback.status, 'ABSENT');
+    assert.equal(doc.readback.status, 'INDETERMINATE');
+    assert.match(doc.readback.evidence, /no CLASSIC required status checks/);
+    assert.match(doc.readback.evidence, /see ruleset_binding/);
+  });
+
+  it('the document no longer contradicts itself', () => {
+    // The property that failed live: two blocks, one repository, opposite answers.
+    const doc = rulesetOnly();
+    assert.equal(doc.ruleset_binding.status, 'BOUND');
+    assert.equal(doc.ruleset_binding.requirements[0].integration_id, 2860592);
+    const saysOpen = /open door|nothing at the provider prevents a merge/.test(doc.statement);
+    const saysBound = doc.ruleset_binding.status === 'BOUND';
+    assert.equal(saysOpen && saysBound, false,
+      'the statement says open door while ruleset_binding says BOUND');
+  });
+
+  it('a NAME-ONLY ruleset is gating, and says it can be satisfied by anyone', () => {
+    // Gating is not the same as unforgeable. Reporting "does gate the merge" without this would
+    // be the overclaim in the other direction.
+    const nameOnly = {
+      ...BOUND_RULESET,
+      rules: [{
+        type: 'required_status_checks',
+        parameters: { required_status_checks: [{ context: 'CodeRifts / contract-gate' }] },
+      }],
+    };
+    const doc = rulesetOnly([nameOnly]);
+    assert.match(doc.statement, /does gate the merge/);
+    assert.match(doc.statement, /NAME-ONLY/);
+  });
+
+  it('an INACTIVE ruleset does not rescue a missing classic requirement', () => {
+    // `evaluate` and `disabled` rulesets are recorded, never counted. If they counted, an operator
+    // could believe a dry-run ruleset was protecting them.
+    const doc = rulesetOnly([{ ...BOUND_RULESET, enforcement: 'evaluate' }]);
+    assert.match(doc.statement, /beside an open door/,
+      'a non-enforcing ruleset was treated as gating');
+    assert.equal(doc.readback.status, 'ABSENT');
+  });
+
+  it('WORST CASE both ways: enforce_admins is not claimed for a ruleset-only repo', () => {
+    // enforce_admins is a classic-protection field. Reporting it as ON or OFF for a repository
+    // that has no classic protection would be describing a control that is not in play.
+    const doc = rulesetOnly();
+    assert.doesNotMatch(doc.statement, /enforce_admins is (ON|OFF)/);
+    assert.match(doc.statement, /classic-protection field/);
+  });
+
+  it('the statement stays inside the schema limit on EVERY branch', () => {
+    // 1338 added a fourth sentence to the both-sources branch and pushed it to 416/400 on the
+    // first draft. This holds the limit so a future edit cannot overflow it silently.
+    const cases = [
+      rulesetOnly(),
+      rulesetOnly([{ ...BOUND_RULESET, enforcement: 'evaluate' }]),
+      buildResult(analyzeReadback({
+        protection: {
+          enforce_admins: { enabled: false },
+          required_status_checks: { checks: [{ context: 'CodeRifts / contract-gate', app_id: 2860592 }] },
+        },
+        checkRuns: [],
+        rulesets: [BOUND_RULESET],
+      })),
+      buildResult(analyzeReadback({
+        protection: { enforce_admins: { enabled: false }, required_status_checks: null },
+        checkRuns: [],
+      })),
+    ];
+    for (const doc of cases) {
+      assert.ok(doc.statement.length <= 400,
+        `statement is ${doc.statement.length} chars (limit 400): ${doc.statement.slice(0, 80)}…`);
+      assert.equal(validate(doc), true, JSON.stringify(validate.errors));
+    }
+  });
+});
+
+describe('1338 — mode reads the union too (the third place)', () => {
+  const { buildResult } = require('../scripts/readback.js');
+  const RS = (integration_id) => ([{
+    id: 22074842, name: 'coderifts-enforcement', enforcement: 'active', bypass_actors: [],
+    rules: [{
+      type: 'required_status_checks',
+      parameters: { required_status_checks: [{ context: 'c', ...(integration_id ? { integration_id } : {}) }] },
+    }],
+  }]);
+  const noClassic = (rulesets) => buildResult(analyzeReadback({
+    protection: { enforce_admins: { enabled: false }, required_status_checks: null },
+    checkRuns: [{ name: 'c', conclusion: 'success', app: { slug: 'coderifts', id: 2860592 } }],
+    rulesets,
+  }));
+
+  it('a BOUND ruleset with no classic protection is mode "app", not "none"', () => {
+    // The schema defines 'none' as "nothing binds it". A ruleset naming an integration_id binds it
+    // exactly the way classic protection with an app_id does, and reporting 'none' said the
+    // opposite of what ruleset_binding measured two fields below.
+    assert.equal(noClassic(RS(2860592)).mode, 'app');
+  });
+
+  it('a NAME-ONLY ruleset is still mode "none" — gating is not binding', () => {
+    // A requirement anyone can satisfy binds nothing to a source, whichever mechanism carries it.
+    // Promoting this to 'app' would be the overclaim in the other direction.
+    assert.equal(noClassic(RS(null)).mode, 'none');
+  });
+
+  it('an INACTIVE ruleset does not make it mode "app"', () => {
+    const inactive = RS(2860592).map((r) => ({ ...r, enforcement: 'evaluate' }));
+    assert.equal(noClassic(inactive).mode, 'none');
+  });
+
+  it('classic protection still decides when it exists', () => {
+    // The union does not mean the ruleset overrides a measured classic binding.
+    const doc = buildResult(analyzeReadback({
+      protection: {
+        enforce_admins: { enabled: false },
+        required_status_checks: { checks: [{ context: 'c', app_id: null }] },
+      },
+      checkRuns: [{ name: 'c', conclusion: 'success', app: { slug: 'x', id: 9 } }],
+      rulesets: RS(2860592),
+    }));
+    assert.equal(doc.mode, 'none', 'a name-only classic requirement was upgraded by the ruleset');
   });
 });
