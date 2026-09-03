@@ -135,18 +135,40 @@ describe('buildResult — provider-enforcement-result.v1 from a live readback', 
   const schema = require('../docs/provider-enforcement-result.v1.json');
   const validate = new Ajv({ strict: false, allErrors: true }).compile(schema);
 
+  /**
+   * 1339 — the issuer here is 2860592, the CodeRifts App, because that is what the demo repo
+   * actually binds today.
+   *
+   * MEASURED live 2026-09-03, AFTER the rebind:
+   *   gh api repos/coderifts/demo/rulesets/22074842
+   *     required: context='CodeRifts / contract-gate'  integration_id=2860592
+   *   gh api orgs/coderifts/installations
+   *     app_slug=coderifts  app_id=2860592  checks=write
+   *   PR#4 mergeStateStatus=BLOCKED
+   *
+   * It used to say 15368 on both the binding and the poster, which described the PRE-rebind world
+   * and was ALSO self-contradictory inside this very file: CHECK_RUNS above maps slug 'coderifts'
+   * to id 2860592, while this fixture mapped the same slug to 15368 — the generic GitHub Actions
+   * id, which belongs to a different issuer entirely. A fixture that pairs an App's slug with
+   * Actions' id cannot describe any real repository.
+   *
+   * 15368 has NOT been removed from this file, and must not be: it is the generic Actions issuer,
+   * and it is the whole point of the impostor cases further down (POSTED_BY_OTHER_ISSUER) and of
+   * the dated 1329 record of what the ruleset said before the rebind. Those are deliberate; this
+   * one was stale.
+   */
   const boundRollup = () => analyzeReadback({
     protection: {
       enforce_admins: { enabled: true },
       required_status_checks: {
         strict: false,
-        checks: [{ context: 'CodeRifts / contract-gate', app_id: 15368 }],
+        checks: [{ context: 'CodeRifts / contract-gate', app_id: 2860592 }],
       },
     },
     checkRuns: [{
       name: 'CodeRifts / contract-gate',
       conclusion: 'success',
-      app: { slug: 'coderifts', id: 15368 },
+      app: { slug: 'coderifts', id: 2860592 },
     }],
     expectApp: 'coderifts',
   });
@@ -157,7 +179,7 @@ describe('buildResult — provider-enforcement-result.v1 from a live readback', 
     assert.equal(doc.provider, 'github');
     assert.equal(doc.mode, 'app');
     assert.equal(doc.required_check.bound_to_source, true);
-    assert.equal(doc.required_check.bound_app_id, 15368);
+    assert.equal(doc.required_check.bound_app_id, 2860592);
     assert.equal(doc.readback.status, 'EXACT');
     assert.equal(doc.bypass_policy.enforce_admins, true);
     // The poster must be comparable with the binding — that is the question the doc answers.
@@ -252,7 +274,11 @@ describe('buildResult — provider-enforcement-result.v1 from a live readback', 
 /**
  * 1329 — the rulesets source.
  *
- * MEASURED live on coderifts/demo 2026-09-03, and the measurement is why this exists: the producer
+ * MEASURED live on coderifts/demo 2026-09-03 BEFORE THE REBIND — this block is a dated record of
+ * the state that motivated reading rulesets at all, not a description of the repo today. The
+ * requirement has since moved to context 'CodeRifts / contract-gate' bound to 2860592 (see
+ * boundRollup above); the 15368 values below are kept deliberately, because the point of the
+ * record is the issuer that USED to be bound. The measurement is why this exists: the producer
  * read branch protection and check-runs and never called /rulesets, so it could not see the binding
  * that actually gates main —
  *
