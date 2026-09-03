@@ -2,26 +2,40 @@
   "provider": "github",
   "mode": "app",
   "required_check": {
-    "name": "CodeRifts / contract-gate",
-    "bound_to_source": true,
-    "bound_app_id": 15368,
-    "posters": [
+    "name": null,
+    "bound_to_source": false,
+    "bound_app_id": null,
+    "posters": []
+  },
+  "ruleset_binding": {
+    "status": "BOUND",
+    "reason": null,
+    "requirements": [
       {
-        "app_slug": "coderifts",
-        "app_id": 15368,
-        "conclusion": "success"
+        "ruleset_id": 22074842,
+        "ruleset_name": "coderifts-enforcement",
+        "enforcement": "active",
+        "active": true,
+        "context": "CodeRifts / contract-gate",
+        "integration_id": 2860592,
+        "bypass_actor_count": 0
+      }
+    ],
+    "cross_check": [
+      {
+        "context": "CodeRifts / contract-gate",
+        "integration_id": 2860592,
+        "posted_count": 1,
+        "poster_app_ids": [
+          2860592
+        ],
+        "agreement": "BOUND_ISSUER_POSTED"
       }
     ]
   },
-  "ruleset_binding": {
-    "status": "UNREADABLE",
-    "reason": "caller did not request rulesets",
-    "requirements": [],
-    "cross_check": []
-  },
   "readback": {
-    "status": "EXACT",
-    "evidence": "CodeRifts / contract-gate: EXACT, bound_app_id=15368, posters=[coderifts#15368]"
+    "status": "INDETERMINATE",
+    "evidence": "no CLASSIC required status checks are configured; the requirement comes from an active ruleset (BOUND) — see ruleset_binding for the bound issuer and whether it posted"
   },
   "negative_test": {
     "status": "PASSED",
@@ -29,9 +43,9 @@
     "procedure": "Two attempts, both refused. (1) A USER token POSTed a check-run under the required context name to the PR head — GitHub answered 403 (only a GitHub App may create check runs), so a party other than the bound App cannot satisfy the check by name. (2) With the required check unsatisfied, the PR reported mergeStateStatus BLOCKED and the merge button was unavailable. Recorded rather than re-run: both steps mutate a real repository, which a read-only producer must not do."
   },
   "bypass_policy": {
-    "enforce_admins": true,
+    "enforce_admins": false,
     "strict_up_to_date": false
   },
-  "statement": "Every required context was satisfied by exactly one check run, so the readback is EXACT: the run that satisfied the requirement is identifiable. Every required context is bound to a source app id, so it cannot be satisfied by name alone. enforce_admins is on, so administrators are subject to the same requirement.",
+  "statement": "No classic branch protection is configured, but an ACTIVE RULESET requires the check, so the provider does gate the merge. The ruleset names an integration_id, so the requirement cannot be satisfied by name alone. enforce_admins is a classic-protection field: for a ruleset-only repository see the per-requirement bypass actors in ruleset_binding.",
   "not_implemented": "This document describes GitHub only. GitLab and Bitbucket have no native identity binding for a check result, so an equivalent document for them would report mode \"none\" — the CodeRifts layer there is NOT_VERIFIED provider-side."
 }
