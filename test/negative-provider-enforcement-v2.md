@@ -20,38 +20,50 @@ read-only and must never perform this.
 
 ## What was measured before writing this
 
-On `coderifts/demo`, **2026-09-03**:
+On `coderifts/demo`, **2026-09-03, AFTER the rebind**:
 
 ```console
-$ gh api repos/coderifts/demo/rulesets/22074842 --jq '.enforcement, .bypass_actors, [.rules[]|select(.type=="required_status_checks").parameters.required_status_checks]'
-"active"
-[]
-[[{"context":"CodeRifts / contract-gate (Action)","integration_id":15368}]]
+$ gh api repos/coderifts/demo/rulesets/22074842 --jq '...'
+enforcement: active | bypass_actors: [] | strict: true
+  REQUIRED: context='CodeRifts / contract-gate'  integration_id=2860592
 
-$ H=$(gh pr view 13 -R coderifts/demo --json headRefOid --jq .headRefOid)
-$ gh api "repos/coderifts/demo/commits/$H/check-runs" --jq '.check_runs[]|{name,app:.app.id}'
-{"name":"CodeRifts / contract-gate","app":2860592}
+$ gh pr view 4 -R coderifts/demo --json state,mergeStateStatus
+PR#4 state: OPEN | mergeStateStatus: BLOCKED
+
+$ gh api "repos/coderifts/demo/commits/be22b752575d/check-runs"
+  CodeRifts / contract-gate (Action)   app=15368/github-actions  failure
+  contract-gate (Action)               app=15368/github-actions  failure
+  CodeRifts / contract-gate            app=2860592/coderifts     failure   ← the required one
 ```
 
-Two findings, and the second is the one that blocks this test today:
+**What PR#4 proves, and what it does not.** It proves the required check is *present and bound*:
+the ruleset names `2860592`, the App posted under that identity, and the PR is BLOCKED. But the
+App's check is **`failure`** — so the block is explained by the verdict alone. Nothing yet shows
+that a check from a *different* issuer would be **excluded**. Presence is not exclusion, and that
+gap is what this procedure closes.
 
-1. The ruleset binds to **15368** — the generic Actions issuer, not a dedicated app.
-2. **Nothing posts the required context.** The ruleset requires
-   `CodeRifts / contract-gate (Action)`; every check-run observed is named
-   `CodeRifts / contract-gate` (no ` (Action)` suffix), from app **2860592**. The required name has
-   never appeared on any PR head in this repository.
+**Why an empty PR cannot be the subject.** Measured in the app
+(`src/mergegate/webhook-integration.js:493`): when no contract file changed, the conclusion is
+`enforce ? 'success' : 'neutral'` — and per that file's own correction, **neutral PASSES a required
+check**. So on a PR with no contract change the App posts a passing check and the requirement is
+satisfied before the impostor is even considered. The subject must be a PR where the App's check
+is `failure`. PR#4 already is one.
 
-Finding 2 means the gate is currently **permanently pending**, not enforcing — which looks like
-enforcement from the merge button and is not the same thing. The ruleset was created 2026-09-02;
-the last merges (PR#12, PR#13) were 2026-08-27, i.e. **before** it existed, so no merge has yet
-been evaluated against it.
+**The ordering trap, and why it decides the test.** GitHub takes the LATEST check-run for a given
+name. If the impostor posts `success` under the required name *before* the App posts `failure`,
+the App simply overwrites it and the PR blocks for the ordinary reason — proving nothing. The
+impostor must post **after** the App's failure is already on the head. Then exactly one of two
+things is true:
+
+* the requirement is matched by **issuer** → the App's `failure` still governs → **BLOCKED**
+* the requirement is matched by **name** → the impostor's `success` governs → **CLEAN**
 
 ## Preconditions
 
-- Admin on `coderifts/demo` (ruleset writes).
-- The rebind from `docs/ruleset-rebind-2860592.json` has been applied, so the requirement is
-  `{context: "CodeRifts / contract-gate", integration_id: 2860592}`.
-- A scratch branch `neg-v2` off `main`, and a PR from it.
+- Admin on `coderifts/demo` (to push a workflow to the scratch branch; no ruleset write is needed).
+- The rebind is in place: `{context: "CodeRifts / contract-gate", integration_id: 2860592}`.
+- **PR#4 is the subject.** Its head already carries the App's `failure` under the required name.
+  Nothing about the ruleset changes, which is why this run is far less destructive than v1.
 
 ## Procedure
 
@@ -59,75 +71,112 @@ been evaluated against it.
 
 ```console
 $ gh api repos/coderifts/demo/rulesets/22074842 > /tmp/ruleset-before.json
-$ jq '[.rules[]|select(.type=="required_status_checks").parameters.required_status_checks]' /tmp/ruleset-before.json
+$ gh pr view 4 -R coderifts/demo --json mergeStateStatus     # expect: BLOCKED
+$ H=$(gh pr view 4 -R coderifts/demo --json headRefOid --jq .headRefOid)
+$ gh api "repos/coderifts/demo/commits/$H/check-runs" --jq '.check_runs[]|{name,app:.app.id,conclusion}'
 ```
-Expected: one entry, `context: "CodeRifts / contract-gate"`, `integration_id: 2860592`.
+Record which check-runs exist and their conclusions. The App's `CodeRifts / contract-gate` must be
+`failure` before you continue — if it is not, this is not the subject the test needs.
 
-**Step 2 — create the scratch PR** (non-destructive to `main`)
+**Step 2 — add the impostor workflow to PR#4's branch** (DESTRUCTIVE: pushes to the PR branch)
 
-```console
-$ git checkout -b neg-v2 && git commit --allow-empty -m "negative test v2" && git push -u origin neg-v2
-$ gh pr create -R coderifts/demo --base main --head neg-v2 --title "negative test v2" --body "destructive test; do not merge"
-$ H=$(gh pr view --json headRefOid --jq .headRefOid)
-```
-
-**Step 3 — post the impostor check from the generic Actions issuer** (DESTRUCTIVE)
-
-The impostor must be a *legitimate* workflow in the repository, so that its check-run genuinely
-carries `app.id: 15368` — a check-run posted with a PAT does **not** reproduce the condition,
-because it carries no app id at all and would pass the test for the wrong reason.
+A PAT does **not** reproduce the condition: a check-run posted with a personal token carries no
+`app.id` at all, so the requirement would fail it for the wrong reason and the test would report a
+pass it did not earn. It must be a real workflow, so the check-run carries `app.id: 15368`.
 
 ```yaml
-# .github/workflows/neg-v2-impostor.yml  (on the scratch branch only)
+# .github/workflows/neg-v2-impostor.yml   — on branch feat/breaking-changes-v1.5 ONLY
 name: neg-v2-impostor
-on: pull_request
-permissions: { checks: write }
+
+# Manual only. `on: pull_request` would race the App's own check and destroy the ordering the
+# test depends on (see "The ordering trap" above).
+on: workflow_dispatch
+
+permissions:
+  checks: write
+
 jobs:
   impostor:
     runs-on: ubuntu-latest
     steps:
-      - run: |
+      - name: Post a SUCCESS under the required name, as the generic Actions issuer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.inputs.head_sha }}
+        run: |
           curl -sS -X POST "$GITHUB_API_URL/repos/${{ github.repository }}/check-runs" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"name":"CodeRifts / contract-gate","head_sha":"${{ github.event.pull_request.head.sha }}","status":"completed","conclusion":"success","output":{"title":"IMPOSTOR","summary":"posted by a generic Actions workflow, not the gate"}}'
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "{
+                  \"name\": \"CodeRifts / contract-gate\",
+                  \"head_sha\": \"$HEAD_SHA\",
+                  \"status\": \"completed\",
+                  \"conclusion\": \"success\",
+                  \"output\": {
+                    \"title\": \"IMPOSTOR — not the gate\",
+                    \"summary\": \"Posted by a generic Actions workflow (15368) under the required name. If this satisfies the requirement, the issuer binding is decorative.\"
+                  }
+                }"
 ```
-
-Confirm it landed under the generic issuer — this is the assertion the test turns on:
 
 ```console
-$ gh api "repos/coderifts/demo/commits/$H/check-runs" --jq '.check_runs[]|{name,app:.app.id}'
-{"name":"CodeRifts / contract-gate","app":15368}     # ← impostor, generic Actions
+$ git checkout feat/breaking-changes-v1.5
+$ mkdir -p .github/workflows && cp neg-v2-impostor.yml .github/workflows/
+$ git add .github/workflows/neg-v2-impostor.yml
+$ git commit -m "negative test v2 impostor — REMOVE AFTER THE RUN"
+$ git push
 ```
 
-**Step 4 — read the merge state** (the actual measurement)
+**Step 3 — fire it, after confirming the App's failure is already on the head**
 
 ```console
-$ gh pr view --json mergeStateStatus,statusCheckRollup
-$ node scripts/readback.js coderifts/demo <PR> --expect-app coderifts --result | jq .ruleset_binding
+$ gh workflow run neg-v2-impostor.yml -R coderifts/demo \
+    --ref feat/breaking-changes-v1.5 -f head_sha="$H"
+$ sleep 20
+$ gh api "repos/coderifts/demo/commits/$H/check-runs" \
+    --jq '.check_runs[]|select(.name=="CodeRifts / contract-gate")|{app:.app.id,conclusion,started:.started_at}'
 ```
 
-| Outcome | Meaning |
+Expected: **two** entries under the required name — `2860592/failure` and `15368/success` — with
+the impostor's timestamp later. If only one appears, the impostor did not land and step 4 is void.
+
+**Step 4 — the measurement**
+
+```console
+$ gh pr view 4 -R coderifts/demo --json mergeStateStatus,statusCheckRollup
+$ GITHUB_TOKEN=$(gh auth token) node scripts/readback.js coderifts/demo 4 \
+    --expect-app coderifts --result | jq '.ruleset_binding.cross_check, .readback'
+```
+
+| Observation | Verdict |
 |---|---|
-| `mergeStateStatus: BLOCKED` **and** `ruleset_binding.cross_check[].agreement == "POSTED_BY_OTHER_ISSUER"` | **PASS.** The binding excludes the generic issuer. This is the result the auditors asked for. |
-| `mergeStateStatus: CLEAN` | **FAIL.** A generic Actions workflow satisfied an app-bound requirement — the binding is decorative. |
-| `agreement == "BOUND_ISSUER_POSTED"` | **INVALID RUN.** The real gate also posted; the impostor was not isolated. Re-run with the gate disabled for this PR. |
+| `mergeStateStatus: BLOCKED` **and** readback shows both posters | **PASS — issuer exclusion proven.** A legitimate Actions workflow posted `success` under the exact required name and the requirement was still not satisfied. This is the claim PR#4 alone could not support. |
+| `mergeStateStatus: CLEAN` | **FAIL.** Name matching won: the `integration_id` on the ruleset is decorative, and any workflow author can green the gate. |
+| only one check-run under the name | **VOID.** The impostor did not post, or overwrote rather than coexisting. Re-run; do not record a result. |
 
-The third row exists because the test is only meaningful when the impostor is the *only* poster of
-that name. A run where both posted proves nothing and must not be recorded as a pass.
+**Step 5 — the positive control** (without it, step 4 only shows that *something* blocked)
 
-**Step 5 — the positive control** (without it, step 4 proves only that something was blocked)
-
-Let the real gate post on the same head. Expected: `mergeStateStatus` becomes `CLEAN` and
-`agreement == "BOUND_ISSUER_POSTED"`. If step 4 blocked and step 5 does not unblock, the ruleset is
-rejecting everything and the "exclusion" in step 4 was not about the issuer.
+Push a fix to PR#4 so the App's own check concludes `success`, and confirm `mergeStateStatus`
+becomes `CLEAN`. If step 4 blocked and step 5 does not unblock, the ruleset is refusing everything
+and the "exclusion" in step 4 was not about the issuer at all.
 
 **Step 6 — restore** (mandatory)
 
 ```console
-$ gh api -X PUT repos/coderifts/demo/rulesets/22074842 --input /tmp/ruleset-before.json
-$ gh pr close <PR> --delete-branch
+$ git rm .github/workflows/neg-v2-impostor.yml && git commit -m "remove impostor" && git push
+$ gh api repos/coderifts/demo/rulesets/22074842 --jq '.rules'   # unchanged; nothing to restore
 ```
+The impostor check-run stays on the head permanently — GitHub does not delete check-runs. Its
+`output.title` says `IMPOSTOR — not the gate` for exactly that reason.
+
+## What this proves that PR#4 did not
+
+PR#4 shows the required check is **present, bound, and failing**, and that the PR is BLOCKED. Every
+part of that is consistent with a name-only requirement: the App happened to post, and it happened
+to fail. This procedure holds the name constant and varies **only the issuer**, so a BLOCKED result
+can no longer be explained by the verdict. That is the difference between *presence* and
+*exclusion*, and exclusion is the property both auditors asked for.
 
 ## Recording the result
 
