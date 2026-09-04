@@ -22,5 +22,8 @@
     "keyring",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "devDependencies": {
+    "ajv": "^8.18.0"
+  }
 }

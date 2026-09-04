@@ -131,7 +131,7 @@ describe('readback — the rendering names the gap in words', () => {
 // the real construction over a rollup fixture — the same pure path `--result` uses.
 describe('buildResult — provider-enforcement-result.v1 from a live readback', () => {
   const { buildResult, NEGATIVE_TEST } = require('../scripts/readback.js');
-  const Ajv = require('/Users/zsobrakpeter/coderifts-app/node_modules/ajv/dist/2020');
+  const Ajv = require('ajv/dist/2020');
   const schema = require('../docs/provider-enforcement-result.v1.json');
   const validate = new Ajv({ strict: false, allErrors: true }).compile(schema);
 
@@ -294,7 +294,7 @@ describe('1329 — rulesets are read, and UNREADABLE is not ABSENT', () => {
     analyzeRulesets, crossCheckRulesets, RULESETS, analyzeReadback, buildResult,
   } = require('../scripts/readback');
   // The sibling describe compiles its own validator in its own scope; this block needs one too.
-  const Ajv = require('/Users/zsobrakpeter/coderifts-app/node_modules/ajv/dist/2020');
+  const Ajv = require('ajv/dist/2020');
   const schema = require('../docs/provider-enforcement-result.v1.json');
   const validate = new Ajv({ strict: false, allErrors: true }).compile(schema);
 
@@ -594,7 +594,7 @@ describe('1338 — statement and readback read the UNION, not classic protection
   // Same imports the 1262 block uses: buildResult and the schema validator are scoped to their
   // describe, not to the module.
   const { buildResult } = require('../scripts/readback.js');
-  const Ajv = require('/Users/zsobrakpeter/coderifts-app/node_modules/ajv/dist/2020');
+  const Ajv = require('ajv/dist/2020');
   const schema = require('../docs/provider-enforcement-result.v1.json');
   const validate = new Ajv({ strict: false, allErrors: true }).compile(schema);
 

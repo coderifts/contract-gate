@@ -19,10 +19,17 @@ jobs:
         with:
           node-version: '20'
 
-      # This package has zero dependencies and no committed lockfile, so `npm install` is used
-      # (`npm ci` requires a package-lock.json). It vendors verify.js and imports only Node builtins.
+      # 1364. The note here used to say "zero dependencies ... imports only Node builtins", and
+      # that was not true of the tests: three describe blocks in test/readback.test.js required a
+      # JSON-Schema validator through an ABSOLUTE path into a sibling private checkout
+      # (/Users/<developer>/coderifts-app/node_modules/ajv). That path exists on one machine. On a
+      # runner it does not, so those blocks threw at suite load and took the run with them.
+      #
+      # The RUNTIME is still dependency-free — the Action ships vendored verify.js and Node
+      # builtins only, and `dependencies` in package.json is still empty. ajv is a devDependency
+      # used by the test suite alone, and a lockfile is committed so `npm ci` can be exact.
       - name: Install
-        run: npm install
+        run: npm ci
 
       # The only gate this repo defines. node --test discovers test/*.test.js.
       - name: Test (node --test)
