@@ -59,6 +59,18 @@ describe('vendored core — digests match the pin', () => {
     );
   });
 
+  it('1342: the pin names mixed revisions — a single source-commit would lie', () => {
+    const text = fs.readFileSync(PIN_FILE, 'utf8');
+    assert.match(text, /Mixed pin/);
+    assert.match(text, /6048195/);
+    assert.match(text, /d69ab53/);
+    assert.match(text, /e3b0c442/);
+    assert.ok(
+      !/^[^\s#].*receipt-verifier [0-9a-f]{40}\s*$/m.test(text.split('\n')[0]),
+      'line 1 must not be a single source-commit claiming the whole set',
+    );
+  });
+
   for (const [name, digest] of pinned) {
     it(`${name} is byte-identical to its pinned digest`, () => {
       assert.equal(

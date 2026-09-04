@@ -1,4 +1,14 @@
-receipt-verifier e6955a975c1356ee83c7b8fa187a529f0cadba53
+# Mixed pin (1342). A single source-commit would lie:
+#   verify.js  = receipt-verifier 6048195 (1306 keyring shape). Bytes 363e52c7.
+#                e6955a97's verify.js is b1d87994; HEAD (e0806f3/1355) is 348d3f85
+#                (comment-only CLI docs) — re-vendor of the whole set to HEAD is
+#                not worth it: verify behavior is 6048195, bundle files are d69ab53.
+#   arity.js   = unchanged e6955a97..HEAD (721fcac5).
+#   xlang      = this tree's copy of the generator output (3c323e74). The file is
+#                NOT in receipt-verifier (ephemeral-key generator). Hashing a
+#                missing receipt-verifier/xlang-vectors.json is empty-string sha
+#                e3b0c442 — that is not a pin of a real corpus.
+#   bundle/*   = receipt-verifier d69ab53 (bytes still match HEAD).
 verify.js  363e52c72ec4b913e1f3edc8e2029848feaeacb1efa6c07960fe5e5f195c23b3
 arity.js   721fcac58b960b5e2aa1af91edb6cfc87ebe828a6da73879967ef79a1ca474e8
 test/fixtures/xlang-vectors.json  3c323e7469113093020498c8948185006783857e71ca01155d7cb10baedaf1a7
