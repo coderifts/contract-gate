@@ -174,6 +174,53 @@ function evaluateBundle(bundle, opts = {}) {
     graded = { ...graded, bundle: BUNDLE.INVALID };
   }
 
+  // ── THE AUTHORIZATION VERDICT, QUOTED (1459) ────────────────────────────────────────────
+  //
+  // The slots above each verify one token and the linkage binds them to one run. What none of them
+  // states is the sentence a merge gate actually needs: is this authorized AND committed. The core
+  // predicate answers it, and the required-check path now prints the same named states the guard
+  // and Prove print — one vocabulary across the surfaces a holder compares.
+  //
+  // ADDITIVE. It does not change the bundle verdict: `graded.bundle` is still the library's, and
+  // this Action still refuses on INVALID or a broken link. What it adds is a reason a reader can
+  // act on when the bundle is technically VERIFIED but the intersection is not met.
+  const authorization = (() => {
+    try {
+      const given = (bundle && bundle.slots) || {};
+      const tokenOf = (slot) => {
+        const v = given[slot];
+        return v && typeof v === 'object' && v.token !== undefined ? v.token : v;
+      };
+      // eslint-disable-next-line global-require
+      const { verifiedExecutionBinding } = require('./verified-execution-binding.js');
+      // eslint-disable-next-line global-require
+      const { verifyExecutionAttestation } = require('./verify-attest.js');
+      const ctx = (opts && opts.ctx) || {};
+      const b = verifiedExecutionBinding({
+        receipt: { verified: (graded.slots || []).some((s) => s.slot === 'receipt' && s.state === SLOT.VERIFIED) },
+        grant: {
+          token: tokenOf('execution_grant') || '',
+          publicKey: ctx.publicKey,
+          keyring: ctx.keyring,
+          expectedKid: ctx.expectedKid ?? null,
+        },
+        attestation: {
+          token: tokenOf('commit_attestation') || tokenOf('deploy_attestation') || null,
+          registry: ctx.executorRegistry || null,
+          verify: typeof verifyExecutionAttestation === 'function' ? verifyExecutionAttestation : undefined,
+        },
+        committed: true,
+        // The gate holds a bundle, not a prove artifact: `one_run_root` is answered by the linkage
+        // above and asking the core for it here would report a shortfall about evidence this
+        // surface receives in a different shape.
+        required: ['issuer_grant', 'executor_attestation'],
+      });
+      return { state: b.state, ok: b.authorized_and_committed, shortfalls: b.shortfalls };
+    } catch (err) {
+      return { state: 'UNAVAILABLE', ok: false, shortfalls: [(err && err.message) || 'error'] };
+    }
+  })();
+
   const bySlot = new Map((graded.slots || []).map((s) => [s.slot, s]));
   const classes = {};
   for (const s of graded.slots || []) classes[s.slot] = classOf(s);
@@ -203,6 +250,7 @@ function evaluateBundle(bundle, opts = {}) {
       // Action cannot show anyone — including on the EMPTY and INVALID paths, which are exactly
       // where a holder asks what was and was not established.
       linkage: graded.linkage || [],
+      authorization,
       classes,
       proven: [],
       reported: [],
@@ -219,6 +267,7 @@ function evaluateBundle(bundle, opts = {}) {
       // Action cannot show anyone — including on the EMPTY and INVALID paths, which are exactly
       // where a holder asks what was and was not established.
       linkage: graded.linkage || [],
+      authorization,
       classes,
       proven: [],
       reported: [],
@@ -248,6 +297,7 @@ function evaluateBundle(bundle, opts = {}) {
       // Action cannot show anyone — including on the EMPTY and INVALID paths, which are exactly
       // where a holder asks what was and was not established.
       linkage: graded.linkage || [],
+      authorization,
       classes,
       proven,
       reported,
