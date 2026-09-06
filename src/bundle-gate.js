@@ -107,11 +107,71 @@ function evaluateBundle(bundle, opts = {}) {
       ok: false,
       reason: 'bundle_verifier_threw',
       bundleState: null,
+      linkage: [],
       classes: {},
       proven: [],
       reported: [],
       summary: `bundle verifier refused a verdict: ${String((err && err.message) || 'unknown').slice(0, 160)}`,
     };
+  }
+
+  // ── ONE RUN, not merely one valid token each (1441 / 1432) ──────────────────────────────
+  //
+  // MEASURED before this was added: the vendored library's only cross-slot check is
+  // `grant_binds_receipt` — PAIRWISE. A bundle whose receipt AND grant both came from a second run
+  // (a matched, genuinely signed pair) satisfies it, and every other slot stays VERIFIED beside
+  // them. Authentic tokens, two runs, one merge — the collage class, open in the path the App is
+  // supposed to be the verification authority for.
+  //
+  // IT LIVES HERE, NOT IN verify-bundle.js. That file is a byte copy of receipt-verifier and
+  // test/vendor-core.test.js fails the moment it is edited — which is exactly what happened on the
+  // first attempt. Grading policy is this Action's job; the library's job is to verify tokens.
+  //
+  // ABSENT IS REPORTED, NOT REFUSED. Bundles predating cr.evidence.root.v1 stay gradeable; what
+  // changes is that "these tokens are one run" is no longer assumed by the absence of a check.
+  const rootLink = (() => {
+    const given = (bundle && bundle.slots) || {};
+    const rootDoc = given.evidence_root && (given.evidence_root.root || given.evidence_root);
+    if (!rootDoc || typeof rootDoc !== 'object') {
+      return {
+        link: 'evidence_root_binds_run',
+        ok: true,
+        absent: true,
+        reason: 'this bundle carries no cr.evidence.root.v1, so nothing binds its tokens to ONE '
+          + 'run; each slot is authentic on its own and the set is not shown to be one merge',
+      };
+    }
+    const tokenOf = (slot) => {
+      const v = given[slot];
+      return v && typeof v === 'object' && v.token !== undefined ? v.token : v;
+    };
+    try {
+      // eslint-disable-next-line global-require
+      const { verifyEvidenceRootBinding } = require('./verify-evidence.js');
+      const r = verifyEvidenceRootBinding({
+        evidence_root: rootDoc,
+        run_id: rootDoc.run_id,
+        issuance: {
+          chain_receipt: tokenOf('receipt'),
+          execution_grant: tokenOf('execution_grant'),
+        },
+        transcript_token: tokenOf('transcript_token') || null,
+        correlation: given.correlation || null,
+      }, { executorKey: (opts && opts.ctx && opts.ctx.executorKey) || null });
+      return r.ok
+        ? { link: 'evidence_root_binds_run', ok: true }
+        : { link: 'evidence_root_binds_run', ok: false, reason: r.failures[0] || 'the evidence root did not verify' };
+    } catch (err) {
+      return {
+        link: 'evidence_root_binds_run',
+        ok: false,
+        reason: `the evidence-root verifier could not run: ${(err && err.message) || 'error'}`,
+      };
+    }
+  })();
+  graded.linkage = [...(graded.linkage || []), rootLink];
+  if (rootLink.ok === false && graded.bundle !== BUNDLE.INVALID) {
+    graded = { ...graded, bundle: BUNDLE.INVALID };
   }
 
   const bySlot = new Map((graded.slots || []).map((s) => [s.slot, s]));
@@ -139,6 +199,10 @@ function evaluateBundle(bundle, opts = {}) {
       ok: false,
       reason: `bundle_invalid:${graded.reason || 'slot_invalid'}`,
       bundleState: graded.bundle,
+      // CARRIED ON EVERY PATH. A link the grader computed but does not return is a check the
+      // Action cannot show anyone — including on the EMPTY and INVALID paths, which are exactly
+      // where a holder asks what was and was not established.
+      linkage: graded.linkage || [],
       classes,
       proven: [],
       reported: [],
@@ -151,6 +215,10 @@ function evaluateBundle(bundle, opts = {}) {
       ok: false,
       reason: 'bundle_empty',
       bundleState: graded.bundle,
+      // CARRIED ON EVERY PATH. A link the grader computed but does not return is a check the
+      // Action cannot show anyone — including on the EMPTY and INVALID paths, which are exactly
+      // where a holder asks what was and was not established.
+      linkage: graded.linkage || [],
       classes,
       proven: [],
       reported: [],
@@ -176,6 +244,10 @@ function evaluateBundle(bundle, opts = {}) {
       ok: false,
       reason: 'bundle_slot_not_proven',
       bundleState: graded.bundle,
+      // CARRIED ON EVERY PATH. A link the grader computed but does not return is a check the
+      // Action cannot show anyone — including on the EMPTY and INVALID paths, which are exactly
+      // where a holder asks what was and was not established.
+      linkage: graded.linkage || [],
       classes,
       proven,
       reported,

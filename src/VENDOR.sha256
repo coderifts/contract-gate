@@ -19,3 +19,10 @@ verify-grant.js  a285b021b32cc9c70c963de042154dc6be7175cdeaf722a88cc7699651a7c1e
 verify-attest.js  035105de0f163d112038624eb2bf93cee059a565216fd8b03489964f6b0b2fa8
 verify-toolset.js  2f0987a28f3e7d3758d71f59799d1a5c6190aaa882f8f887809b2bff434e2df8
 verify-atomic-attestation.js  8ef57d4c3d7882f8f9215461cee7d582520ced18d467ba083e05b1aa9c54b1f7
+evidence-root.js             4d5476fc44bbfc2a847feeb313a1c6c08ef7fd832a2348ef3c244bd8d3f03fcd
+verify-evidence.js           98cd9b989a25095e0442f91f68a1adecd6e6a2a5b05902bf2580b8cba973c5e2
+verify-prove-transcript.js   3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
+
+# evidence-root.js, verify-evidence.js and verify-prove-transcript.js are vendored at
+# 16cf6654ff3fa6d6293eb4a425bbe7fb6999ee26 (1441/1432 — the evidence root in the required-check path). The files above keep
+# their own earlier revisions; the pin is mixed on purpose, as VENDOR.md records.
