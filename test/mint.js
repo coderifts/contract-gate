@@ -54,11 +54,26 @@ function mintV4(signer, envelope, overrides = {}) {
   return `${b64url(JSON.stringify(payload))}.${b64url(sig)}`;
 }
 
-/** Flip one byte of a token's signature segment -> signature no longer verifies. */
+/**
+ * Flip one byte of a token's signature segment -> signature no longer verifies.
+ *
+ * ALREADY BYTE-LEVEL, and that is why it is correct: `raw[0] ^= 0xff` changes the DECODED bytes,
+ * so the signature really does break. The sibling repos carried a character-level version —
+ * `s.slice(0, -1) + 'A'` — which is a NO-OP whenever the signature's last base64url character is
+ * one of 'A'..'P': an Ed25519 signature is 64 bytes in 86 characters, so the final character's low
+ * four bits decode to nothing. MEASURED as 16 of 64 characters, one capture in four, and it was
+ * live on one shipped fixture.
+ *
+ * The self-check below is not redundant paranoia about `0xff` (a byte XORed with 0xff is never
+ * itself). It guards the EDIT: someone narrowing the mask, or moving to a smaller flip, would
+ * otherwise reintroduce exactly the defect this comment describes, silently.
+ */
 function tamperSignature(token) {
   const [body, sig] = token.split('.');
   const raw = Buffer.from(sig, 'base64url');
+  const before = Buffer.from(raw);
   raw[0] ^= 0xff;
+  if (raw.equals(before)) throw new Error('tamperSignature: the mutation did not change the signature bytes');
   return `${body}.${b64url(raw)}`;
 }
 
