@@ -15,13 +15,13 @@ test/fixtures/xlang-vectors.json  3c323e7469113093020498c8948185006783857e71ca01
 
 # bundle grading, vendored from receipt-verifier d69ab538785e3ee2185d02153e883e2d147e041e
 verify-bundle.js  190de0dda70c4d15dcd21fb6bb6b279313e48f90bf2e477463580968d0987127
-verify-grant.js  a285b021b32cc9c70c963de042154dc6be7175cdeaf722a88cc7699651a7c1ea
+verify-grant.js  127b53de3be77196862c10a8812221de0a5112cf1d3feae12d347a6021852df7
 verify-attest.js  035105de0f163d112038624eb2bf93cee059a565216fd8b03489964f6b0b2fa8
 verify-toolset.js  2f0987a28f3e7d3758d71f59799d1a5c6190aaa882f8f887809b2bff434e2df8
 verify-atomic-attestation.js  8ef57d4c3d7882f8f9215461cee7d582520ced18d467ba083e05b1aa9c54b1f7
 evidence-root.js             4d5476fc44bbfc2a847feeb313a1c6c08ef7fd832a2348ef3c244bd8d3f03fcd
 verify-evidence.js           98cd9b989a25095e0442f91f68a1adecd6e6a2a5b05902bf2580b8cba973c5e2
-verified-execution-binding.js 98973d19c582eb8f2a2ffc363c0a7981ac57d673e5830443217ceffb1afb5f3c
+verified-execution-binding.js e48ea29b9f8b0c5b1754187788cbaf78cdaf0b505848c05d1ae3ffebb30218f2
 verify-prove-transcript.js   3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
 
 # verified-execution-binding.js is vendored at ce5fd34e93a6e8cdcc71d7ebcba09497088844e1 (1459 — the one predicate).
