@@ -24,7 +24,7 @@ verify-evidence.js           98cd9b989a25095e0442f91f68a1adecd6e6a2a5b05902bf258
 verified-execution-binding.js e48ea29b9f8b0c5b1754187788cbaf78cdaf0b505848c05d1ae3ffebb30218f2
 verify-prove-transcript.js   3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
 
-# verified-execution-binding.js is vendored at ce5fd34e93a6e8cdcc71d7ebcba09497088844e1 (1459 — the one predicate).
+# verified-execution-binding.js is vendored at 1e41542296551139c41e2d4b4cff2e67bc42aa06 (1459 — the one predicate).
 # evidence-root.js, verify-evidence.js and verify-prove-transcript.js are vendored at
 # 16cf6654ff3fa6d6293eb4a425bbe7fb6999ee26 (1441/1432 — the evidence root in the required-check path). The files above keep
 # their own earlier revisions; the pin is mixed on purpose, as VENDOR.md records.
