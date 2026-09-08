@@ -21,10 +21,12 @@ verify-toolset.js  2f0987a28f3e7d3758d71f59799d1a5c6190aaa882f8f887809b2bff434e2
 verify-atomic-attestation.js  8ef57d4c3d7882f8f9215461cee7d582520ced18d467ba083e05b1aa9c54b1f7
 evidence-root.js             4d5476fc44bbfc2a847feeb313a1c6c08ef7fd832a2348ef3c244bd8d3f03fcd
 verify-evidence.js           98cd9b989a25095e0442f91f68a1adecd6e6a2a5b05902bf2580b8cba973c5e2
-verified-execution-binding.js e48ea29b9f8b0c5b1754187788cbaf78cdaf0b505848c05d1ae3ffebb30218f2
+verified-execution-binding.js 9d0259e916f2bcd32029744c3e9ec81448bcefa46e6ad3f054c8a650dc0482b7
 verify-prove-transcript.js   3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
 
-# verified-execution-binding.js is vendored at 1e41542296551139c41e2d4b4cff2e67bc42aa06 (1459 — the one predicate).
+# verified-execution-binding.js is vendored from the WORKING TREE: the core now VERIFIES the
+# decision receipt instead of believing a caller's `verified: true`, and a CUSTOM authority set
+# reads CUSTOM_REQUIREMENTS_SATISFIED rather than the global claim.
 # evidence-root.js, verify-evidence.js and verify-prove-transcript.js are vendored at
 # 16cf6654ff3fa6d6293eb4a425bbe7fb6999ee26 (1441/1432 — the evidence root in the required-check path). The files above keep
 # their own earlier revisions; the pin is mixed on purpose, as VENDOR.md records.

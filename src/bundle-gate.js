@@ -197,7 +197,22 @@ function evaluateBundle(bundle, opts = {}) {
       const { verifyExecutionAttestation } = require('./verify-attest.js');
       const ctx = (opts && opts.ctx) || {};
       const b = verifiedExecutionBinding({
-        receipt: { verified: (graded.slots || []).some((s) => s.slot === 'receipt' && s.state === SLOT.VERIFIED) },
+        // ── THE RECEIPT ITSELF, so the core verifies it rather than believing this file ──
+        //
+        // This passed `{ verified: <a boolean derived from our own grading> }`. The core has since
+        // stopped taking that on trust: `receipt.verified` with no token and no key source is the
+        // fourth caller-boolean this ecosystem has met, and it can no longer reach the global
+        // success token.
+        //
+        // The bundle already carries the receipt — `tokenOf('receipt')` is right there — and the
+        // caller's keyring is already being handed to the grant three lines below. Handing both
+        // over means the answer rests on a signature rather than on this module's opinion of one.
+        receipt: {
+          token: tokenOf('receipt') || '',
+          publicKey: ctx.publicKey,
+          keyring: ctx.keyring,
+          expectedKid: ctx.expectedKid ?? null,
+        },
         grant: {
           token: tokenOf('execution_grant') || '',
           publicKey: ctx.publicKey,
@@ -215,7 +230,12 @@ function evaluateBundle(bundle, opts = {}) {
         // surface receives in a different shape.
         required: ['issuer_grant', 'executor_attestation'],
       });
-      return { state: b.state, ok: b.authorized_and_committed, shortfalls: b.shortfalls };
+      // THE FIELD THIS SURFACE IS ENTITLED TO. It names a CUSTOM authority set (the gate holds a
+      // bundle, not a prove artifact, so `one_run_root` is answered by the linkage above), and the
+      // core will not answer a narrower question with the widest word. Reading
+      // `authorized_and_committed` after that change would have made this permanently false — a
+      // gate that refuses everything looks exactly like a gate that works.
+      return { state: b.state, ok: b.requirements_satisfied === true, shortfalls: b.shortfalls };
     } catch (err) {
       return { state: 'UNAVAILABLE', ok: false, shortfalls: [(err && err.message) || 'error'] };
     }
