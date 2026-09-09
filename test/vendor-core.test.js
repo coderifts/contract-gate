@@ -71,8 +71,14 @@ describe('vendored core — digests match the pin', () => {
     // asserts the RELATIONSHIP: the core names a tag, and the non-core files — which genuinely do
     // come from elsewhere — still name their own revisions.
     const text = fs.readFileSync(PIN_FILE, 'utf8');
-    assert.match(text, /receipt-verifier \*\*v1\.0\.0\*\*/,
+    assert.match(text, /receipt-verifier \*\*v1\.0\.1\*\*/,
       'the core does not name the release tag');
+    // AND THE SIGNER, because that is what v1.0.1 adds over v1.0.0. The tag's signature is
+    // verified below; this asserts the pin RECORDS which key must have signed it. Without the
+    // record, that check would accept any good signature by anyone, and "signed" would mean
+    // "somebody signed something" rather than "this releaser signed this release".
+    assert.match(text, /SHA256:7yRXTm9zKGicfFpzL\+7lpwFoPaoSwxAJlabB3jwxw2Y/,
+      'the pin names a signed tag but records no signer fingerprint to check it against');
     assert.match(text, /source_commit: 51a8224439959a5b46c0b09e9a2cd67117f05d56/,
       'the pin does not name the peeled commit');
     for (const line of text.split('\n')) {
@@ -84,7 +90,7 @@ describe('vendored core — digests match the pin', () => {
     assert.match(text, /e3b0c442/, 'the xlang note was lost with the mixed-pin rewrite');
   });
 
-  it('the vendored core is byte-identical to receipt-verifier v1.0.0', (t) => {
+  it('the vendored core is byte-identical to the SIGNED receipt-verifier v1.0.1', (t) => {
     // MEASURED: this suite had NO upstream comparison — only digest-vs-pin, which proves the pin
     // was recomputed and nothing about where the bytes came from. A pin that matches bytes nobody
     // traced is arithmetic.
@@ -95,11 +101,33 @@ describe('vendored core — digests match the pin', () => {
         + 'upstream parity was NOT (not passed)');
       return;
     }
-    const TAG = 'v1.0.0';
+    const TAG = 'v1.0.1';
     const peeled = spawnSync('git', ['-C', SOURCE, 'rev-parse', `${TAG}^{commit}`], { encoding: 'utf8' });
     assert.equal(peeled.status, 0, `receipt-verifier has no ${TAG} tag`);
     assert.equal(peeled.stdout.trim(), '51a8224439959a5b46c0b09e9a2cd67117f05d56',
       `${TAG} points somewhere other than the commit this pin names`);
+
+    // ── THE TAG IS VERIFIED, NOT MERELY RESOLVED ────────────────────────────────────────────
+    //
+    // `rev-parse` proves the tag points where the pin says. It does not prove the tag is the one
+    // the releaser cut: an unsigned tag is a name anyone with push access can move, and this check
+    // would keep passing after it moved, as long as the bytes moved with it.
+    //
+    // v1.0.1 is annotated and SSH-signed, so the pin resolves to an IDENTITY. This asserts that
+    // the signature verifies AND that it verifies against the fingerprint recorded in the pin —
+    // "signed" alone would accept a signature by anyone at all.
+    //
+    // MEASURED: `git tag -v` exits 0 and writes its verdict to STDERR, not stdout. A check reading
+    // stdout finds nothing there and can be written to "pass" on a tag it never verified.
+    const SIGNER_FPR = 'SHA256:7yRXTm9zKGicfFpzL+7lpwFoPaoSwxAJlabB3jwxw2Y';
+    const sig = spawnSync('git', ['-C', SOURCE, 'tag', '-v', TAG], { encoding: 'utf8' });
+    const verdict = `${sig.stdout || ''}${sig.stderr || ''}`;
+    assert.equal(sig.status, 0, `${TAG} does not verify as a signed tag:\n${verdict}`);
+    assert.match(verdict, /Good .*signature/,
+      `${TAG} carries no good signature — the vendored core cannot be traced to a signed release`);
+    assert.ok(verdict.includes(SIGNER_FPR),
+      `${TAG} is signed, but NOT by the key this pin records (${SIGNER_FPR}):\n${verdict}`);
+
     let compared = 0;
     for (const [name] of pinned) {
       const r = spawnSync('git', ['-C', SOURCE, 'show', `${TAG}:${name}`], { maxBuffer: 1 << 24 });
