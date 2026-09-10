@@ -153,6 +153,9 @@ function evaluateGate({
 
   const executionAction = typeof envelope.execution_action === 'string' ? envelope.execution_action : null;
   const decision = typeof envelope.decision === 'string' ? envelope.decision : null;
+  // HOISTED so a refusal can be cited too. A foreign CI that shows only the passing token teaches
+  // a bot that CodeRifts is a rubber stamp; the deny is the more instructive citation of the two.
+  const citationDecisionId = typeof envelope.decision_id === 'string' ? envelope.decision_id : null;
 
   if (!result || result.valid !== true) {
     return fail('receipt_unverified', { receiptStatus: result ? result.status : null, decision, executionAction });
@@ -243,6 +246,7 @@ function evaluateGate({
   //   3. Behaviour can change without touching the artifact: a grant binds contract bytes, not
   //      runtime behaviour. A change that keeps every governed file byte-identical passes here
   //      and can still change what the service does.
+  let citedGrantId = null;
   if (require_grant === true) {
     const cov = evaluateGrantCoverage({
       governedArtifacts: governed_artifacts || [],
@@ -256,6 +260,10 @@ function evaluateGate({
         why: cov.why,
       });
     }
+    // Read off the VERIFIED payload, never off the request. An id taken from what the caller sent
+    // would be a number the gate republishes rather than a number it checked.
+    citedGrantId = (grant_result && grant_result.payload && typeof grant_result.payload.grant_id === 'string')
+      ? grant_result.payload.grant_id : null;
   }
 
   // ── crbundle.v1 (1261) ────────────────────────────────────────────────────────────────────
@@ -284,11 +292,19 @@ function evaluateGate({
     }
   }
 
+  const citation = buildCitation({
+    decisionId: citationDecisionId,
+    grantId: citedGrantId,
+    receiptDigest: receiptDigest(token),
+    headSha,
+    repository: repository || null,
+  });
   return {
     pass: true, conclusion: 'success', reason: 'signed_allow_for_diff',
     decision, executionAction, receiptStatus: result.status, headSha,
+    citation,
     ...(bundleReport ? { bundle: bundleReport } : {}),
-    summary: buildSummary({ pass: true, reason: 'signed_allow_for_diff', decision, executionAction, receiptStatus: result.status, headSha })
+    summary: buildSummary({ pass: true, reason: 'signed_allow_for_diff', decision, executionAction, receiptStatus: result.status, headSha, citation })
       + (bundleReport ? `\n\nProof bundle: ${bundleReport.summary}` : ''),
   };
 }
@@ -352,7 +368,52 @@ function remedyBlock(remedy) {
   return ['```json', JSON.stringify(remedy, null, 2), '```'].join('\n');
 }
 
-function buildSummary({ pass, reason, decision, executionAction, receiptStatus, headSha, why, remedy, nextStep }) {
+/**
+ * citation.v1 — the token a FOREIGN surface can quote.
+ *
+ * ── WHY THIS IS OUTPUT FORMAT AND NOT ENFORCEMENT ───────────────────────────────────────────
+ *
+ * Nothing here decides anything. `grant_id` and the receipt digest already exist on a decision
+ * this gate has already verified; the only change is that they now appear where somebody else can
+ * read them. A model does not read positioning — it reads the text on the pull request in front of
+ * it, and the token in that text is what makes the reference concrete.
+ *
+ * MEASURED before this was written: the check summary carried reason / decision / execution_action
+ * / receipt status / head commit, and NEITHER identifier. The digest was already computed one
+ * scope up (`receiptDigest(token)` for the monitoring intent) and thrown away; `grant_id` sits on
+ * the verified grant payload the coverage check already reads.
+ *
+ * TWO RENDERINGS OF ONE FACT. The human lines are for the person looking at the PR; the fenced
+ * `coderifts-citation` JSON is for the bot that will not parse prose. They are built from the same
+ * object, so they cannot disagree — a summary and a machine block that drift apart is how a
+ * citation becomes unciteable.
+ *
+ * NULL IS PRINTED, NOT OMITTED. A run without `require_grant` has no grant_id, and saying so is
+ * the honest form. Dropping the key would let a reader take its absence for a value they did not
+ * get.
+ */
+function buildCitation({ decisionId = null, grantId = null, receiptDigest: digest = null, headSha = null, repository = null } = {}) {
+  return {
+    v: 'coderifts.citation.v1',
+    decision_id: decisionId || null,
+    grant_id: grantId || null,
+    receipt_digest: digest || null,
+    head_sha: headSha || null,
+    repository: repository || null,
+    // The scope sentence travels WITH the token. A digest quoted on a foreign PR without it
+    // invites the reading that CodeRifts approved the merge; it verified one receipt for one diff.
+    verified: 'a signed receipt for THIS diff, checked offline against a pinned keyring',
+    does_not_prove: 'that the merge happened, that CI passed, or that any third party witnessed it',
+  };
+}
+
+/** The fenced block a bot parses. Fenced so a foreign renderer shows it verbatim. */
+function citationBlock(citation) {
+  if (!citation) return '';
+  return ['```coderifts-citation', JSON.stringify(citation, null, 2), '```'].join('\n');
+}
+
+function buildSummary({ pass, reason, decision, executionAction, receiptStatus, headSha, why, remedy, nextStep, citation = null }) {
   const lines = [
     pass ? '✅ **CodeRifts contract-gate: PASS**' : '❌ **CodeRifts contract-gate: FAIL** (merge blocked)',
     '',
@@ -360,6 +421,13 @@ function buildSummary({ pass, reason, decision, executionAction, receiptStatus, 
     `- decision: \`${decision ?? 'n/a'}\` (execution_action: \`${executionAction ?? 'n/a'}\`)`,
     `- receipt status: \`${receiptStatus ?? 'n/a'}\``,
     `- head commit: \`${headSha ?? 'n/a'}\``,
+    // THE CITABLE PAIR, on the line a foreign CI renders. `n/a` rather than a blank: a missing
+    // identifier must read as missing, not as an empty value somebody could quote.
+    ...(citation ? [
+      `- grant id: \`${citation.grant_id ?? 'n/a'}\``,
+      `- receipt digest: \`${citation.receipt_digest ?? 'n/a'}\``,
+      `- decision id: \`${citation.decision_id ?? 'n/a'}\``,
+    ] : []),
     ...(why ? ['', `- why: ${why}`] : []),
     '',
     pass
@@ -367,8 +435,9 @@ function buildSummary({ pass, reason, decision, executionAction, receiptStatus, 
       : 'No valid signed ALLOW receipt exists for this exact head diff. Verified offline against the pinned keyring; fail-closed.',
     ...(remedy ? ['', 'To obtain a grant for this change set:', '', remedyBlock(remedy)] : []),
     ...(nextStep ? ['', nextStepBlock(nextStep)] : []),
+    ...(citation ? ['', citationBlock(citation)] : []),
   ];
   return lines.join('\n');
 }
 
-module.exports = { evaluateGate, PASSING_ACTIONS, buildSummary, remedyBlock, nextStepBlock, readNextAgentStep };
+module.exports = { evaluateGate, PASSING_ACTIONS, buildSummary, remedyBlock, nextStepBlock, readNextAgentStep, buildCitation, citationBlock };
