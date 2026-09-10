@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.3
+
+The vendored verification core is re-pinned to the signed receipt-verifier v1.0.1 (byte-identical to v1.0.0; the provenance names the signed tag and the signer). vendor-core verifies every core file against git show v1.0.1 and verifies the signed tag against the recorded fingerprint.
+
+
 ## 0.9.2
 
 The vendored verification core is re-pinned to receipt-verifier v1.0.0 (51a8224) and re-vendored to match the released tag. verify-grant.js now admits a grant carrying the reserved inert v2 fields (call_hash, executor_image_digest) instead of returning MALFORMED; the verify.js delta is comment-only CLI docs. vendor-core compares the bytes against git show v1.0.0:<file>, adding an upstream comparison it did not have before.
