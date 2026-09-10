@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.4
+
+The check output cites the grant_id and receipt-digest with a travelling scope claim. The grant_id (from the verified payload) and the receipt-digest appear in the human summary and a fenced coderifts-citation block, so a foreign CI showing the check can reference the decision. The does_not_prove claim travels with the token: the digest does not mean the merge happened, CI passed, or any third party witnessed it.
+
+
 ## 0.9.3
 
 The vendored verification core is re-pinned to the signed receipt-verifier v1.0.1 (byte-identical to v1.0.0; the provenance names the signed tag and the signer). vendor-core verifies every core file against git show v1.0.1 and verifies the signed tag against the recorded fingerprint.
