@@ -71,7 +71,7 @@ describe('vendored core — digests match the pin', () => {
     // asserts the RELATIONSHIP: the core names a tag, and the non-core files — which genuinely do
     // come from elsewhere — still name their own revisions.
     const text = fs.readFileSync(PIN_FILE, 'utf8');
-    assert.match(text, /receipt-verifier \*\*v1\.0\.1\*\*/,
+    assert.match(text, /receipt-verifier \*\*v1\.0\.2\*\*/,
       'the core does not name the release tag');
     // AND THE SIGNER, because that is what v1.0.1 adds over v1.0.0. The tag's signature is
     // verified below; this asserts the pin RECORDS which key must have signed it. Without the
@@ -79,7 +79,7 @@ describe('vendored core — digests match the pin', () => {
     // "somebody signed something" rather than "this releaser signed this release".
     assert.match(text, /SHA256:7yRXTm9zKGicfFpzL\+7lpwFoPaoSwxAJlabB3jwxw2Y/,
       'the pin names a signed tag but records no signer fingerprint to check it against');
-    assert.match(text, /source_commit: 51a8224439959a5b46c0b09e9a2cd67117f05d56/,
+    assert.match(text, /source_commit: ac683b16c19662c9124c8cdab785223b28d2d0c6/,
       'the pin does not name the peeled commit');
     for (const line of text.split('\n')) {
       assert.doesNotMatch(line, /^#\s+\S+\.(?:js|json)\s+WORKING-TREE/,
@@ -90,7 +90,7 @@ describe('vendored core — digests match the pin', () => {
     assert.match(text, /e3b0c442/, 'the xlang note was lost with the mixed-pin rewrite');
   });
 
-  it('the vendored core is byte-identical to the SIGNED receipt-verifier v1.0.1', (t) => {
+  it('the vendored core is byte-identical to the SIGNED receipt-verifier v1.0.2', (t) => {
     // MEASURED: this suite had NO upstream comparison — only digest-vs-pin, which proves the pin
     // was recomputed and nothing about where the bytes came from. A pin that matches bytes nobody
     // traced is arithmetic.
@@ -101,10 +101,10 @@ describe('vendored core — digests match the pin', () => {
         + 'upstream parity was NOT (not passed)');
       return;
     }
-    const TAG = 'v1.0.1';
+    const TAG = 'v1.0.2';
     const peeled = spawnSync('git', ['-C', SOURCE, 'rev-parse', `${TAG}^{commit}`], { encoding: 'utf8' });
     assert.equal(peeled.status, 0, `receipt-verifier has no ${TAG} tag`);
-    assert.equal(peeled.stdout.trim(), '51a8224439959a5b46c0b09e9a2cd67117f05d56',
+    assert.equal(peeled.stdout.trim(), 'ac683b16c19662c9124c8cdab785223b28d2d0c6',
       `${TAG} points somewhere other than the commit this pin names`);
 
     // ── THE TAG IS VERIFIED, NOT MERELY RESOLVED ────────────────────────────────────────────
