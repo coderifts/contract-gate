@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.5
+
+The vendored verification core is re-pinned to the signed receipt-verifier v1.0.2. vendor-core verifies every core file against `git show v1.0.2` and checks the signed tag against the recorded fingerprint; VENDOR.sha256 records the digests the check compares against. No behaviour change in the gate itself — this moves the core the gate verifies with, not what it decides.
+
+
 ## 0.9.4
 
 The check output cites the grant_id and receipt-digest with a travelling scope claim. The grant_id (from the verified payload) and the receipt-digest appear in the human summary and a fenced coderifts-citation block, so a foreign CI showing the check can reference the decision. The does_not_prove claim travels with the token: the digest does not mean the merge happened, CI passed, or any third party witnessed it.
