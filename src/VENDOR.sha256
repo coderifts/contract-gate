@@ -1,14 +1,26 @@
-# Mixed pin (1342). A single source-commit would lie:
-#   verify.js  = receipt-verifier 6048195 (1306 keyring shape). Bytes 363e52c7.
-#                e6955a97's verify.js is b1d87994; HEAD (e0806f3/1355) is 348d3f85
-#                (comment-only CLI docs) — re-vendor of the whole set to HEAD is
-#                not worth it: verify behavior is 6048195, bundle files are d69ab53.
-#   arity.js   = unchanged e6955a97..HEAD (721fcac5).
+# ONE TAG, PLUS ONE FILE THAT IS NOT IN IT.
+#
+# This block used to open "Mixed pin (1342). A single source-commit would lie", and then named
+# verify.js as receipt-verifier 6048195 with bytes 363e52c7. BOTH HALVES HAD STOPPED BEING TRUE
+# and the file contradicted its own hash lines: the pinned verify.js below is 348d3f85, and so are
+# the bytes on disk. The v1.0.2 re-pin recorded further down superseded this paragraph; nobody
+# deleted it, so the first thing a reader met was the state the file had moved away from.
+#
+# MEASURED 2026-09-13, every pinned entry against `git show v1.0.2:<path>` in receipt-verifier:
+#   the ELEVEN .js files below — verify, arity, verify-bundle, verify-grant, verify-attest,
+#   verify-toolset, verify-atomic-attestation, evidence-root, verify-evidence,
+#   verified-execution-binding, verify-prove-transcript — are ALL byte-identical to the tag.
+#   Not "mostly", not "the core": all of them. The set is no longer mixed, so the sentence that
+#   a single source-commit would lie is itself now the lie.
+#
+# The one genuine exception, and it keeps its own note because it is still true:
 #   xlang      = this tree's copy of the generator output (3c323e74). The file is
 #                NOT in receipt-verifier (ephemeral-key generator). Hashing a
 #                missing receipt-verifier/xlang-vectors.json is empty-string sha
 #                e3b0c442 — that is not a pin of a real corpus.
-#   bundle/*   = receipt-verifier d69ab53 (bytes still match HEAD).
+#
+# This is a comment correction only. VENDOR.sha256 is not itself under a byte pin — it cannot
+# hash itself and no other repository pins it — so no hash line moves and no vendored byte moves.
 # ── THE RECEIPT-VERIFIER CORE IS PINNED TO A RELEASED TAG ───────────────────────────────────
 #
 # The shared verification core here comes from receipt-verifier **v1.0.2**, peeled commit
