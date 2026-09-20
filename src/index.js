@@ -30,19 +30,58 @@ const { verifyExecutionGrant } = require('./execution-grant-verify');
 const { deriveGovernedArtifacts } = require('./governed-paths');
 const { loadMonitoringKeyring } = require('./monitoring-attestation');
 const { selectGrantForHead } = require('./grant-delivery');
+const { OUTCOME_CODE, OUTCOME_CONCLUSION } = require('./outcome-code');
+const { detectExplicitSkip, commitMessagesInRange } = require('./explicit-skip');
 
 const PINNED_KEYRING_PATH = path.join(__dirname, '..', 'keyring', 'pinned-keys.json');
 
+/**
+ * X.21 — TWO event shapes, one answer.
+ *
+ * A merge QUEUE does not re-run the pull_request event: it builds a NEW commit (the PR's changes
+ * on top of whatever else is in the queue) and emits `merge_group`. Those bytes are what actually
+ * lands on the branch, and they are not the bytes the PR's own green checks were computed
+ * against. A gate that only understands `pull_request` therefore has nothing to say about what
+ * merges — and before this function knew the shape, adding the trigger made things WORSE than
+ * silence: it threw, and a thrown gate on the queue path fails every merge.
+ *
+ * `merge_group` carries base_sha/head_sha directly. It carries no pull request, so it carries no
+ * title either — the PR-title skip carrier simply is not present on this path, while the commit
+ * messages in base..head still are. That is a real reduction in what can be detected, and it is
+ * named here rather than hidden: the queue branch contains the PR's commits, so the carrier that
+ * survives is the one that travels with the code.
+ */
 function readEvent(eventPath) {
-  if (!eventPath || !fs.existsSync(eventPath)) throw new Error('GITHUB_EVENT_PATH missing (run on pull_request events)');
+  if (!eventPath || !fs.existsSync(eventPath)) {
+    throw new Error('GITHUB_EVENT_PATH missing (run on pull_request or merge_group events)');
+  }
   const ev = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
-  if (!ev.pull_request) throw new Error('event is not a pull_request');
   const [owner, repo] = String(ev.repository && ev.repository.full_name || '').split('/');
-  return {
-    owner, repo,
-    baseSha: ev.pull_request.base && ev.pull_request.base.sha,
-    headSha: ev.pull_request.head && ev.pull_request.head.sha,
-  };
+
+  if (ev.pull_request) {
+    return {
+      owner, repo,
+      eventKind: 'pull_request',
+      baseSha: ev.pull_request.base && ev.pull_request.base.sha,
+      headSha: ev.pull_request.head && ev.pull_request.head.sha,
+      // For explicit-skip detection. Absent on some synthetic payloads; '' is not a request.
+      prTitle: ev.pull_request.title || '',
+    };
+  }
+
+  if (ev.merge_group) {
+    return {
+      owner, repo,
+      eventKind: 'merge_group',
+      baseSha: ev.merge_group.base_sha,
+      headSha: ev.merge_group.head_sha,
+      // No pull request on this path, so no title. Not a default standing in for a missing
+      // value — there is genuinely nothing to read, and '' is not a skip request.
+      prTitle: '',
+    };
+  }
+
+  throw new Error('event is neither a pull_request nor a merge_group');
 }
 
 /**
@@ -77,6 +116,9 @@ async function runGate({
   grantComments = null,
   bundlePath = null,
   bundleSlotKeysPath = null,
+  // Explicit-skip inputs. Injectable so the refusal is testable without an event file.
+  prTitle = '',
+  env = process.env,
   // 1334 — default TRUE so every existing consumer is byte-identical.
   postCheckRun: postCheckRun_ = true,
 }) {
@@ -111,6 +153,39 @@ async function runGate({
     if (!apiKey) throw new Error('api-key input is required');
     if (!baseSha || !headSha) throw new Error('could not resolve base/head SHA from the event');
 
+    // X.21 — BEFORE anything is derived, because the request to skip is itself the violation and
+    // it does not depend on what changed. Running the analysis first and refusing afterwards
+    // would give the same verdict by a longer route, but it would also mean a network call and a
+    // key on a run whose only possible outcome is refusal.
+    const skip = detectExplicitSkip({
+      prTitle,
+      commitMessages: commitMessagesInRange({ baseRef: baseSha, headRef: headSha, cwd, gitImpl }),
+      env,
+    });
+    if (skip.requested) {
+      const summary = [
+        '❌ **CodeRifts contract-gate: FAILED**', '',
+        `- outcome: \`${OUTCOME_CODE.EXPLICIT_SKIP_NOT_ALLOWED}\``,
+        `- asked via: ${skip.sources.map((s) => `\`${s}\``).join(', ')}`,
+        `- head commit: \`${headSha}\``, '',
+        'A skip was requested in words. A required check that a phrase can wave off is not a',
+        'required check, so the request is refused rather than honoured — and refused as a',
+        'FAILURE, not a neutral, because a neutral would leave the pull request mergeable.', '',
+        'The marker is not evidence that this change set is safe. It is evidence that someone',
+        'preferred the question not to be asked. Remove it and let the gate answer.', '',
+        ...skip.detail.map((line) => `- ${line}`),
+      ].join('\n');
+      await emitCheck(OUTCOME_CONCLUSION[OUTCOME_CODE.EXPLICIT_SKIP_NOT_ALLOWED],
+        'Explicit skip is not allowed', summary);
+      return {
+        exitCode: 1,
+        gate: { pass: false, reason: 'explicit_skip_not_allowed' },
+        outcomeCode: OUTCOME_CODE.EXPLICIT_SKIP_NOT_ALLOWED,
+        skipSources: skip.sources,
+        artifactCount: 0,
+      };
+    }
+
     // 1. artifacts from the REAL diff — the anti-bypass invariant.
     const { artifacts, changedContractFiles } = deriveArtifactsFromDiff({ baseRef: baseSha, headRef: headSha, cwd, gitImpl });
 
@@ -118,11 +193,18 @@ async function runGate({
       const summary = [
         '✅ **CodeRifts contract-gate: PASS**', '',
         '- reason: `no_contract_changes`',
+        `- outcome: \`${OUTCOME_CODE.NO_CONTRACT_CHANGE}\``,
         `- head commit: \`${headSha}\``, '',
         'No contract artifacts changed in this diff (openapi/graphql/grpc/asyncapi/mcp-manifest). Nothing to govern.',
       ].join('\n');
-      await emitCheck('success', 'No contract changes', summary);
-      return { exitCode: 0, gate: { pass: true, reason: 'no_contract_changes' }, artifactCount: 0 };
+      // The conclusion comes from the namespace, not from a literal typed here twice.
+      await emitCheck(OUTCOME_CONCLUSION[OUTCOME_CODE.NO_CONTRACT_CHANGE], 'No contract changes', summary);
+      return {
+        exitCode: 0,
+        gate: { pass: true, reason: 'no_contract_changes' },
+        outcomeCode: OUTCOME_CODE.NO_CONTRACT_CHANGE,
+        artifactCount: 0,
+      };
     }
 
     // 2. preflight (v4 receipt path). Decision Spec 2.0: authorize (gate ENFORCES merge, needs a
@@ -255,6 +337,8 @@ async function main() {
     // remove the gate's own check-run.
     postCheckRun: String(process.env['INPUT_POST-CHECK-RUN'] || '').toLowerCase() !== 'false',
     owner: ev.owner, repo: ev.repo, baseSha: ev.baseSha, headSha: ev.headSha,
+    prTitle: ev.prTitle,
+    env: process.env,
     cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
     requireVerifiedMonitoring: parseBoolInput(process.env['INPUT_REQUIRE-VERIFIED-MONITORING'], false),
     monitoringAttestation: process.env['INPUT_MONITORING-ATTESTATION'] || null,
