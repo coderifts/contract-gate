@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0
+
+The gate joins the merge queue and refuses an explicit skip. merge_group events are handled end to end: readEvent understands the queue payload and the gate derives its artifacts from the queued merge's real diff. An explicit [skip coderifts] marker in the PR title, commit message, or environment now fails the run with EXPLICIT_SKIP_NOT_ALLOWED before any API key is spent — until now the marker was read by nothing and such a PR passed green. Outcomes carry their own namespace: NO_CONTRACT_CHANGE and its peers are outcomes, not denial reasons, and a run that finds no contract change concludes success by saying so rather than staying silent.
+
+
 ## 0.9.5
 
 The vendored verification core is re-pinned to the signed receipt-verifier v1.0.2. vendor-core verifies every core file against `git show v1.0.2` and checks the signed tag against the recorded fingerprint; VENDOR.sha256 records the digests the check compares against. No behaviour change in the gate itself — this moves the core the gate verifies with, not what it decides.
