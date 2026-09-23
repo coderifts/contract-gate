@@ -38,3 +38,55 @@ jobs:
           # require-verified-monitoring: 'true'
           # monitoring-attestation: ${{ vars.CODERIFTS_MONITORING_ATTESTATION }}
           # monitoring-keyring: ${{ github.workspace }}/.coderifts/monitoring-keys.json
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# ⚠ IF YOU REQUIRE A JOB NAME INSTEAD OF THE POSTED CHECK NAME, READ THIS.
+#
+# The job above is safe as written because the required context is the check-run the ACTION
+# POSTS (`CodeRifts / contract-gate`). If the job never runs, that check never reports, the
+# context stays "expected", and the pull request does not merge — fail-closed on absence.
+#
+# The moment you set `post-check-run: 'false'` and require the JOB's own check instead — which is
+# what you do to avoid the two-integrations name collision (see README, "Two integrations, one
+# name") — the shape inverts, because a JOB can be SKIPPED and a skipped job reports `skipped`.
+#
+# ⚠ MEASURED, and it is GitHub's own rule, not an opinion: "Required status checks must have a
+# `successful`, `skipped`, or `neutral` status before collaborators can make changes to a
+# protected branch." A SKIPPED required check therefore PASSES. Confirmed on coderifts/demo
+# 2026-09-23: the `canary` job's check-run concluded `skipped` on the pull-request head.
+#
+# So a job-name required check needs an AGGREGATOR that runs even when the thing it watches did
+# not, and turns anything that is not a success into a FAILURE:
+#
+#   jobs:
+#     contract-gate-action:
+#       name: contract-gate (Action)
+#       runs-on: ubuntu-latest
+#       steps:
+#         - uses: actions/checkout@v4
+#           with: { fetch-depth: 0 }
+#         - uses: coderifts/contract-gate@v0
+#           with:
+#             api-key: ${{ secrets.CODERIFTS_API_KEY }}
+#             post-check-run: 'false'      # the aggregator below is the required context
+#
+#     contract-gate-required:
+#       name: contract-gate (required)     # ← require THIS name in branch protection
+#       needs: [contract-gate-action]
+#       # ⚠ `always()` IS THE LOAD-BEARING WORD. Without it this job is itself SKIPPED whenever
+#       # the job it needs was skipped, cancelled or failed — and a skipped required check passes.
+#       # The aggregator would then be green exactly when the gate did not run.
+#       if: always()
+#       runs-on: ubuntu-latest
+#       steps:
+#         - name: the gate ran and succeeded — skipped is not success
+#           run: |
+#             result="${{ needs.contract-gate-action.result }}"
+#             echo "contract-gate-action result: $result"
+#             # success | failure | cancelled | skipped — only the first is a pass.
+#             [ "$result" = "success" ] || exit 1
+#
+# ⚠ `[skip coderifts]` needs NO aggregator help: the action refuses the request and concludes
+# `failure` (src/explicit-skip.js, outcome EXPLICIT_SKIP_NOT_ALLOWED), because a neutral would
+# leave the pull request mergeable. The aggregator covers the cases the action never reaches —
+# the job being skipped, cancelled or timed out before it ran at all.

@@ -109,6 +109,48 @@ silently fails open, and how to close each:
 **Exact settings that close the absence gap:** required check `CodeRifts / contract-gate` +
 `strict: true` + workflow triggers on `pull_request` with **no path filter**.
 
+## ⚠ Skipped is not absent — and a skipped required check PASSES
+
+The section above covers the check that never reports: the context stays "expected" and the merge
+is blocked. This one covers the case that looks identical in the UI and behaves as its opposite.
+
+**GitHub's rule, quoted:** *"Required status checks must have a `successful`, **`skipped`**, or
+**`neutral`** status before collaborators can make changes to a protected branch."* So the two
+conclusions that mean THE CHECK SAID NOTHING are exactly the two that let the merge through.
+
+**Measured on `coderifts/demo`, 2026-09-23:** the `canary` job's check-run on the pull-request head
+concluded `skipped`. A required context in that state is green.
+
+**When this reaches you.** It does not, as long as the required context is the check-run this
+ACTION posts — the action either posts a conclusion or posts nothing, and nothing is blocked by
+absence. It reaches you the moment you set `post-check-run: 'false'` and require the JOB's own
+check instead, which is what the "Two integrations, one name" advice leads to. A job can be
+skipped; a job's check-run can therefore conclude `skipped`; and that is a pass.
+
+**The fix is an aggregator, and `always()` is the load-bearing word** — without it the aggregator
+is itself skipped whenever the job it watches was skipped, so it is green exactly when the gate did
+not run. The full snippet is in [`examples/contract-gate.yml`](examples/contract-gate.yml); the
+shape is:
+
+```yaml
+  contract-gate-required:
+    name: contract-gate (required)      # ← require THIS name
+    needs: [contract-gate-action]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          result="${{ needs.contract-gate-action.result }}"
+          # success | failure | cancelled | skipped — only the first is a pass.
+          [ "$result" = "success" ] || exit 1
+```
+
+⚠ **`[skip coderifts]` does not need the aggregator.** A skip requested in a PR title, a commit
+message or `CODERIFTS_SKIP` is REFUSED by the action and concluded `failure`, not `neutral`
+(`src/explicit-skip.js`, outcome `EXPLICIT_SKIP_NOT_ALLOWED`) — precisely because a neutral would
+leave the pull request mergeable. The aggregator covers what the action never reaches: the job
+being skipped, cancelled or timed out before it ran.
+
 ## Follow-up (server-side, not this round)
 
 `coderifts-app/src/renderers/policy-renderer.js:88` still emits *"Approval requirements are
