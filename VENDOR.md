@@ -7,6 +7,7 @@ This Action copies the public verifier. It does not `npm install` a CodeRifts-op
 | `src/verify.js` | `receipt-verifier/verify.js` | `6048195` (sha `363e52c7`; not HEAD — 1355 only touched comments) |
 | `src/arity.js` | `receipt-verifier/arity.js` | bytes unchanged `e6955a97`..HEAD (`721fcac5`) |
 | `src/verify-bundle.js` (and grant/attest/toolset/atomic) | same names in receipt-verifier | `d69ab53` |
+| `src/receipt-from-commit.js` | `receipt-verifier/receipt-from-commit.js` | `a209154` (not in the v1.0.3 tag; byte copy, 2026-09-26, for `require-receipt-trailer`) |
 
 The pin is **mixed on purpose**. Collapsing `src/VENDOR.sha256` to a single `receipt-verifier <sha>` would lie: verify.js is 6048195, the bundle set is d69ab53, arity is older and unchanged. Do not recopy HEAD until verify.js behavior actually moves.
 

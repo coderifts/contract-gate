@@ -76,3 +76,8 @@ verify-evidence.js           98cd9b989a25095e0442f91f68a1adecd6e6a2a5b05902bf258
 verified-execution-binding.js 9d0259e916f2bcd32029744c3e9ec81448bcefa46e6ad3f054c8a650dc0482b7
 verify-prove-transcript.js   3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
 
+
+# T4 (2026-09-26) — the commit-receipt locator, for require-receipt-trailer. NOT in the signed
+# v1.0.3 tag (it was written after it), so it keeps its own per-file provenance like the bundle set:
+# receipt-verifier a2091544f1059a1c85bba2618a658cdca3c121e9 (last commit touching the file), byte copy.
+receipt-from-commit.js  37509d869af0d3cb6834659407572f132569dab5546c231fcdb58ac65755ce14

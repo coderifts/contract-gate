@@ -41,6 +41,16 @@ inputs:
     description: 'cr.monitor.attest.v1 token string (guard 9.2.0+ outcome.monitoring_attestation). Required when require-verified-monitoring is true and the decision is CWM. No network fetch.'
     required: false
     default: ''
+  require-receipt-trailer:
+    description: >-
+      When true, the head commit must carry its own receipt — a `CodeRifts-Receipt:` commit trailer
+      or a `.coderifts/receipts/<sha>.json` sidecar — that verifies OFFLINE against the pinned
+      keyring, is an ALLOW, and whose signed envelope `artifact_digest` equals the digest of this
+      pull request's contract diff. The envelope is required (a trailer carries only the token), so
+      a trailer-only receipt fails. Missing, invalid, mismatched → failure. Default false (existing
+      consumers unchanged).
+    required: false
+    default: 'false'
   require-grant:
     description: >-
       When true, BLOCK unless every changed governed path is covered by a valid cr.exec.v1

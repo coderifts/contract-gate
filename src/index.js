@@ -32,6 +32,7 @@ const { loadMonitoringKeyring } = require('./monitoring-attestation');
 const { selectGrantForHead } = require('./grant-delivery');
 const { OUTCOME_CODE, OUTCOME_CONCLUSION } = require('./outcome-code');
 const { detectExplicitSkip, commitMessagesInRange } = require('./explicit-skip');
+const { checkReceiptTrailer } = require('./receipt-trailer');
 
 const PINNED_KEYRING_PATH = path.join(__dirname, '..', 'keyring', 'pinned-keys.json');
 
@@ -121,6 +122,8 @@ async function runGate({
   env = process.env,
   // 1334 — default TRUE so every existing consumer is byte-identical.
   postCheckRun: postCheckRun_ = true,
+  // T4 — default FALSE: the head-commit receipt is an opt-in requirement.
+  requireReceiptTrailer = false,
 }) {
   const emitCheck = async (conclusion, title, summary, text = null) => {
     // 1334 — DELIBERATE opt-out, distinct from "we had no token".
@@ -205,6 +208,30 @@ async function runGate({
         outcomeCode: OUTCOME_CODE.NO_CONTRACT_CHANGE,
         artifactCount: 0,
       };
+    }
+
+    // 1b. require-receipt-trailer (T4, opt-in): the head commit must carry its own receipt, verified
+    // OFFLINE against the pinned keyring and bound to THIS diff by artifact_digest. Checked before
+    // the preflight call so a run that can only fail spends no network call. Off → nothing runs.
+    if (requireReceiptTrailer === true) {
+      const trailerKeyring = await loadKeyring(keyringPath);
+      const t = checkReceiptTrailer({ headSha, cwd, keyring: trailerKeyring, artifacts });
+      if (!t.ok) {
+        const summary = [
+          '❌ **CodeRifts contract-gate: FAILED**', '',
+          `- reason: \`${t.reason}\``,
+          `- head commit: \`${headSha}\``,
+          ...(t.carrier ? [`- carrier: \`${t.carrier}\``] : []),
+          ...(t.status ? [`- status: \`${t.status}\``] : []),
+          ...(t.detail ? ['', t.detail] : []), '',
+          '`require-receipt-trailer` is on: the head commit must carry a `CodeRifts-Receipt:` trailer',
+          'or a `.coderifts/receipts/<sha>.json` sidecar whose receipt verifies offline, is an ALLOW,',
+          'and covers exactly the contract diff of this pull request.',
+        ].join('\n');
+        await emitCheck('failure', 'Blocked — no verified receipt on the head commit', summary);
+        return { exitCode: 1, gate: { pass: false, reason: t.reason }, receiptTrailer: t, artifactCount: artifacts.length };
+      }
+      log(`contract-gate: head-commit receipt verified offline (${t.carrier})`);
     }
 
     // 2. preflight (v4 receipt path). Decision Spec 2.0: authorize (gate ENFORCES merge, needs a
@@ -344,6 +371,7 @@ async function main() {
     monitoringAttestation: process.env['INPUT_MONITORING-ATTESTATION'] || null,
     monitoringKeyringPath: process.env['INPUT_MONITORING-KEYRING'] || null,
     requireGrant: parseBoolInput(process.env['INPUT_REQUIRE-GRANT'], false),
+    requireReceiptTrailer: parseBoolInput(process.env['INPUT_REQUIRE-RECEIPT-TRAILER'], false),
     executionGrant: process.env['INPUT_EXECUTION-GRANT'] || null,
     grantKeyringPath: process.env['INPUT_GRANT-KEYRING'] || null,
     grantOperation: process.env['INPUT_GRANT-OPERATION'] || 'merge',

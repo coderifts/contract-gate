@@ -46,6 +46,36 @@ jobs:
           # monitoring-keyring: ${{ github.workspace }}/.coderifts/monitoring-keys.json
 ```
 
+## Requiring the receipt on the head commit (`require-receipt-trailer`)
+
+Off by default. With `require-receipt-trailer: 'true'` the gate additionally requires the receipt
+that was **attached to the head commit**, and checks it offline before any API call:
+
+- **Carrier.** A `CodeRifts-Receipt: <token>` trailer in the head commit message, and/or a
+  `.coderifts/receipts/<head-sha>.json` sidecar `{ "receipt": "<token>", "envelope": { … } }` in the
+  workspace. Both present and different → failure (neither is used).
+- **Authentic.** The token verifies against the **pinned keyring** with the vendored verifier.
+- **This diff.** The signed envelope's `artifact_digest` must equal the digest the gate computes from
+  the pull request's actual contract diff (sha256 over each artifact's before/after bytes, sorted by
+  type and id — the recipe the CodeRifts API signs).
+- **An ALLOW.** The envelope's `execution_action` must be `CONTINUE`.
+
+The envelope is required: a trailer carries only the token, which proves the receipt is authentic
+but not which diff it covers, so **a trailer on its own fails** (`receipt_envelope_required`). A
+sidecar keyed by the head SHA cannot live inside the head commit (the SHA would change) — write it
+into the workspace in a step before the gate.
+
+Missing, conflicting, unauthentic, a different diff, or not an ALLOW → the check fails, with the
+reason (`receipt_trailer_missing`, `receipt_trailer_conflict`, `receipt_trailer_invalid`,
+`receipt_diff_mismatch`, `receipt_not_allow`, `receipt_envelope_required`) in the summary.
+
+```yaml
+      - uses: coderifts/contract-gate@v0
+        with:
+          api-key: ${{ secrets.CODERIFTS_API_KEY }}
+          require-receipt-trailer: 'true'
+```
+
 ## Two integrations, one name
 
 The CodeRifts GitHub App posts a check named `CodeRifts / contract-gate`, and by default so does
