@@ -2,6 +2,11 @@
 
 ## 0.10.0
 
+- New optional input `require-receipt-trailer` (default `false`). When `true`, the head commit's receipt (trailer or sidecar) must verify offline against the pinned keyring, its `artifact_digest` must match the pull request's diff digest, and its `execution_action` must be `CONTINUE`; any failure is a failing check before the preflight call. A trailer alone (no envelope) fails with `receipt_envelope_required`.
+- Vendored `receipt-from-commit.js` (byte-copy, pin `a209154`).
+
+## 0.10.0
+
 The gate joins the merge queue and refuses an explicit skip. merge_group events are handled end to end: readEvent understands the queue payload and the gate derives its artifacts from the queued merge's real diff. An explicit [skip coderifts] marker in the PR title, commit message, or environment now fails the run with EXPLICIT_SKIP_NOT_ALLOWED before any API key is spent — until now the marker was read by nothing and such a PR passed green. Outcomes carry their own namespace: NO_CONTRACT_CHANGE and its peers are outcomes, not denial reasons, and a run that finds no contract change concludes success by saying so rather than staying silent.
 
 
