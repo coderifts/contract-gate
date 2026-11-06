@@ -1,73 +1,60 @@
 # ONE TAG, PLUS ONE FILE THAT IS NOT IN IT.
 #
-# This block used to open "Mixed pin (1342). A single source-commit would lie", and then named
-# verify.js as receipt-verifier 6048195 with bytes 363e52c7. BOTH HALVES HAD STOPPED BEING TRUE
-# and the file contradicted its own hash lines: the pinned verify.js below is 348d3f85, and so are
-# the bytes on disk. The v1.0.2 re-pin recorded further down superseded this paragraph; nobody
-# deleted it, so the first thing a reader met was the state the file had moved away from.
+# ── THE RECEIPT-VERIFIER CORE IS PINNED TO A RELEASED TAG: v1.2.1 ───────────────────────────
 #
-# MEASURED 2026-09-13, every pinned entry against `git show v1.0.3:<path>` in receipt-verifier:
-#   the ELEVEN .js files below — verify, arity, verify-bundle, verify-grant, verify-attest,
+# The shared verification core here comes from receipt-verifier **v1.2.1**, peeled commit
+# e1a346bcb62532a9151cfe180b5ac2a33786d9a1.
+#
+# MEASURED 2026-11-06, every pinned entry against `git show v1.2.1:<path>` in receipt-verifier:
+#   the TWELVE .js files below — verify, arity, verify-bundle, verify-grant, verify-attest,
 #   verify-toolset, verify-atomic-attestation, evidence-root, verify-evidence,
-#   verified-execution-binding, verify-prove-transcript — are ALL byte-identical to the tag.
-#   Not "mostly", not "the core": all of them. The set is no longer mixed, so the sentence that
-#   a single source-commit would lie is itself now the lie.
+#   verified-execution-binding, verify-prove-transcript, receipt-from-commit — are ALL
+#   byte-identical to the tag.
+#
+# Hash lines that moved from v1.0.3: verify.js and verify-grant.js, over the receipt-verifier path
+# (first tag of each commit, measured): 1.1.1 P66 v<4 is not authorization, a non-string signed field
+# is MALFORMED; 1.1.4 a receipt beside an envelope must be v4; 1.1.5 Ed25519 only; 1.1.6 --as-of,
+# expiry applies under a retired key; 1.1.7 strict JSON parse, and grants (verify-grant.js: revoked_at
+# refuses a grant at every instant, strict grant bodies); 1.1.8 --as-of before ts is
+# NOT_YET_VALID_AT_AS_OF; 1.2.0 the RECEIPT_FORMAT §7.1 key-status order. Every other hash line is
+# unchanged because those files are byte-identical to v1.0.3.
 #
 # The one genuine exception, and it keeps its own note because it is still true:
-#   xlang      = this tree's copy of the generator output (3c323e74). The file is
+#   xlang      = this tree's copy of the generator output (806ab018, regenerated 2026-11-06 with
+#                receipt-verifier scripts/vectors/gen-xlang-vectors.js). The file is
 #                NOT in receipt-verifier (ephemeral-key generator). Hashing a
 #                missing receipt-verifier/xlang-vectors.json is empty-string sha
 #                e3b0c442 — that is not a pin of a real corpus.
 #
-# This is a comment correction only. VENDOR.sha256 is not itself under a byte pin — it cannot
-# hash itself and no other repository pins it — so no hash line moves and no vendored byte moves.
-# ── THE RECEIPT-VERIFIER CORE IS PINNED TO A RELEASED TAG ───────────────────────────────────
-#
-# The shared verification core here comes from receipt-verifier **v1.0.3**, peeled commit
-# 523e0a2b822088990f500b9eea3868309439c53c.
-#
-# It was pinned to a WORKING TREE and to per-file commits. Both are honest about where the bytes
-# came from and neither is a provenance a stranger can resolve: a working tree is not fetchable,
-# so "the vendored bytes match upstream" reduced to "they match whatever is on this machine right
-# now". A released tag is a name anyone can check out — that is the difference between a pin and
-# a note.
-#
-# Hash lines that moved: verify.js, verify-grant.js (v1.0.3 admits applied_policy_hash).
-# Every other hash line is unchanged because those files are byte-identical to v1.0.2.
+# Before v1.0.0 the core was pinned to a WORKING TREE and to per-file commits. Both are honest about
+# where the bytes came from and neither is a provenance a stranger can resolve. A released tag is a
+# name anyone can check out — that is the difference between a pin and a note.
 #
 #
 # ── AND THE TAG IS SIGNED, WHICH IS THE PART A STRANGER CAN CHECK ───────────────────────────
 #
-# v1.0.0 was an unsigned tag: a name anyone can check out, and also a name anyone with push access
-# can move. v1.0.1 is annotated and SSH-signed, so the pin now resolves to an identity and not
-# only to bytes.
-#
-#   tag object   bb5753681275920e7e23351c6b41632957e6238f
-#   peeled commit 523e0a2b822088990f500b9eea3868309439c53c
+#   tag object   e6dd547d445c6b22627a2da8a4946165b62affe6
+#   peeled commit e1a346bcb62532a9151cfe180b5ac2a33786d9a1
 #   signer       zsobpeter@gmail.com
 #   fingerprint  SHA256:7yRXTm9zKGicfFpzL+7lpwFoPaoSwxAJlabB3jwxw2Y
 #
 # Verify it yourself, in a checkout of receipt-verifier:
 #
-#   git tag -v v1.0.3
+#   git tag -v v1.2.1
 #   -> Good "git" signature for zsobpeter@gmail.com with ED25519 key SHA256:7yRXTm9zKGicfFpzL+7lpwFoPaoSwxAJlabB3jwxw2Y
 #
-# WHY v1.0.3 AND NOT v1.0.2: the CORE IS NOT byte-identical. verify-grant.js admits
-# applied_policy_hash on V2_RESERVED_INERT (1942 verifier-admits; fail-closed otherwise
-# unchanged) and verify.js moved with it. This re-pin copies those bytes from the signed
-# tag, not from a working tree.
+# Previous pin: v1.0.3 (tag object bb5753681275920e7e23351c6b41632957e6238f, peeled 523e0a2, same signer).
 #
-# The peeled commit is 523e0a2 — the K-phase-1 inert-admit commit the tag names.
-# source_commit: 523e0a2b822088990f500b9eea3868309439c53c (receipt-verifier v1.0.3, signed)
+# source_commit: e1a346bcb62532a9151cfe180b5ac2a33786d9a1 (receipt-verifier v1.2.1, signed)
 #
 
-verify.js  52d7c37611f9eecc862e3678d1ffcb4fd860ea4c5faf9a9df6d6d5b290bd8197
+verify.js  6b9a6bb72e98b312dcf7c973af01cf867a8ad99b04df120bf27ed1d587a23d14
 arity.js   721fcac58b960b5e2aa1af91edb6cfc87ebe828a6da73879967ef79a1ca474e8
-test/fixtures/xlang-vectors.json  3c323e7469113093020498c8948185006783857e71ca01155d7cb10baedaf1a7
+test/fixtures/xlang-vectors.json  806ab01881f7219ffe10d6fd49dbf7016bc9b7765cd41849e8e3585f0b73b177
 
 # bundle grading, vendored from receipt-verifier d69ab538785e3ee2185d02153e883e2d147e041e
 verify-bundle.js  190de0dda70c4d15dcd21fb6bb6b279313e48f90bf2e477463580968d0987127
-verify-grant.js  ea55b8611d6f3bba2cb9c84d765ade15bb2afe2418499e2da6358ffb3faf6ad6
+verify-grant.js  e29d7853570cce1531ffa155e18e8d65ead043175418b47d487f30a852a4f45e
 verify-attest.js  035105de0f163d112038624eb2bf93cee059a565216fd8b03489964f6b0b2fa8
 verify-toolset.js  2f0987a28f3e7d3758d71f59799d1a5c6190aaa882f8f887809b2bff434e2df8
 verify-atomic-attestation.js  8ef57d4c3d7882f8f9215461cee7d582520ced18d467ba083e05b1aa9c54b1f7
@@ -77,7 +64,7 @@ verified-execution-binding.js 9d0259e916f2bcd32029744c3e9ec81448bcefa46e6ad3f054
 verify-prove-transcript.js   3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
 
 
-# T4 (2026-09-26) — the commit-receipt locator, for require-receipt-trailer. NOT in the signed
-# v1.0.3 tag (it was written after it), so it keeps its own per-file provenance like the bundle set:
-# receipt-verifier a2091544f1059a1c85bba2618a658cdca3c121e9 (last commit touching the file), byte copy.
+# T4 (2026-09-26) — the commit-receipt locator, for require-receipt-trailer. It was not in v1.0.3;
+# it IS in v1.2.1, byte-identical (measured 2026-11-06), and the tag comparison now covers it.
+# Originally copied from receipt-verifier a2091544f1059a1c85bba2618a658cdca3c121e9.
 receipt-from-commit.js  37509d869af0d3cb6834659407572f132569dab5546c231fcdb58ac65755ce14

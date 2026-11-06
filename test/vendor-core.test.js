@@ -71,7 +71,7 @@ describe('vendored core — digests match the pin', () => {
     // asserts the RELATIONSHIP: the core names a tag, and the non-core files — which genuinely do
     // come from elsewhere — still name their own revisions.
     const text = fs.readFileSync(PIN_FILE, 'utf8');
-    assert.match(text, /receipt-verifier \*\*v1\.0\.3\*\*/,
+    assert.match(text, /receipt-verifier \*\*v1\.2\.1\*\*/,
       'the core does not name the release tag');
     // AND THE SIGNER, because that is what v1.0.1 adds over v1.0.0. The tag's signature is
     // verified below; this asserts the pin RECORDS which key must have signed it. Without the
@@ -79,7 +79,7 @@ describe('vendored core — digests match the pin', () => {
     // "somebody signed something" rather than "this releaser signed this release".
     assert.match(text, /SHA256:7yRXTm9zKGicfFpzL\+7lpwFoPaoSwxAJlabB3jwxw2Y/,
       'the pin names a signed tag but records no signer fingerprint to check it against');
-    assert.match(text, /source_commit: 523e0a2b822088990f500b9eea3868309439c53c/,
+    assert.match(text, /source_commit: e1a346bcb62532a9151cfe180b5ac2a33786d9a1/,
       'the pin does not name the peeled commit');
     for (const line of text.split('\n')) {
       assert.doesNotMatch(line, /^#\s+\S+\.(?:js|json)\s+WORKING-TREE/,
@@ -90,7 +90,7 @@ describe('vendored core — digests match the pin', () => {
     assert.match(text, /e3b0c442/, 'the xlang note was lost with the mixed-pin rewrite');
   });
 
-  it('the vendored core is byte-identical to the SIGNED receipt-verifier v1.0.3', (t) => {
+  it('the vendored core is byte-identical to the SIGNED receipt-verifier v1.2.1', (t) => {
     // MEASURED: this suite had NO upstream comparison — only digest-vs-pin, which proves the pin
     // was recomputed and nothing about where the bytes came from. A pin that matches bytes nobody
     // traced is arithmetic.
@@ -101,10 +101,10 @@ describe('vendored core — digests match the pin', () => {
         + 'upstream parity was NOT (not passed)');
       return;
     }
-    const TAG = 'v1.0.3';
+    const TAG = 'v1.2.1';
     const peeled = spawnSync('git', ['-C', SOURCE, 'rev-parse', `${TAG}^{commit}`], { encoding: 'utf8' });
     assert.equal(peeled.status, 0, `receipt-verifier has no ${TAG} tag`);
-    assert.equal(peeled.stdout.trim(), '523e0a2b822088990f500b9eea3868309439c53c',
+    assert.equal(peeled.stdout.trim(), 'e1a346bcb62532a9151cfe180b5ac2a33786d9a1',
       `${TAG} points somewhere other than the commit this pin names`);
 
     // ── THE TAG IS VERIFIED, NOT MERELY RESOLVED ────────────────────────────────────────────
@@ -181,7 +181,8 @@ describe('vendored core — the shared cross-language corpus', () => {
 
   it('the corpus still carries the withdrawal class it was extended for', () => {
     const statuses = new Set(CORPUS.vectors.map((v) => v.js.status));
-    for (const required of ['REVOKED_KEY', 'REVOKED_KEY_UNDECIDABLE', 'KEY_REVOKED',
+    // RECEIPT_FORMAT §7.1 (receipt-verifier 64bc671): REVOKED_KEY_UNDECIDABLE is withdrawn, RETIRED_KEY_UNANCHORED is live.
+    for (const required of ['REVOKED_KEY', 'RETIRED_KEY_UNANCHORED', 'KEY_REVOKED',
       'KEY_RETIRED_AFTER_SIGNING', 'UNKNOWN_KEY_STATUS']) {
       assert.ok(statuses.has(required), `the corpus no longer covers ${required}`);
     }
@@ -234,14 +235,40 @@ describe('vendored core — v4, the version this gate verifies', () => {
     assert.equal(r.status, 'REVOKED_KEY');
   });
 
-  it('planned rotation on v4: signed before retired_at stays valid, after does not', async () => {
+  // RECEIPT_FORMAT §7.1 rows 3 and 5. Before (v1.0.3 core): signed before retired_at was
+  // RETIRED_KEY_VALID_AT_ISSUE, valid:true. Without an independent time anchor it is not valid.
+  it('planned rotation on v4: signed before retired_at is unanchored, after is retired-after-signing; neither is valid', async () => {
     const ok = await verifyWith({ status: 'retired', retired_at: BOUNDARY }, SIGNED_BEFORE);
-    assert.equal(ok.status, 'RETIRED_KEY_VALID_AT_ISSUE');
-    assert.equal(ok.valid, true);
+    assert.equal(ok.status, 'RETIRED_KEY_UNANCHORED');
+    assert.equal(ok.valid, false);
 
     const no = await verifyWith({ status: 'retired', retired_at: BOUNDARY }, SIGNED_AFTER);
     assert.equal(no.status, 'KEY_RETIRED_AFTER_SIGNING');
     assert.equal(no.valid, false);
+  });
+
+  it('a key both revoked and retired, signed after retired_at: revoked wins (§7.1 row 2)', async () => {
+    const r = await verifyWith({ status: 'revoked', compromised_at: BOUNDARY, retired_at: BOUNDARY }, SIGNED_AFTER);
+    assert.equal(r.status, 'REVOKED_KEY');
+    assert.equal(r.valid, false);
+    assert.equal(r.compromised_at, BOUNDARY);
+  });
+
+  it('a revoked key is REVOKED_KEY at every signing time, compromised_at or not (§7.1 row 2)', async () => {
+    for (const entry of [{ status: 'revoked', compromised_at: BOUNDARY }, { status: 'revoked' }]) {
+      const r = await verifyWith(entry, SIGNED_BEFORE);
+      assert.equal(r.status, 'REVOKED_KEY', JSON.stringify(entry));
+      assert.equal(r.valid, false);
+    }
+  });
+
+  it('RETIRED_KEY_VALID_AT_ISSUE is not returned: the core reads no time anchor (§7.1 row 4)', () => {
+    const src = fs.readFileSync(path.join(SRC, 'verify.js'), 'utf8');
+    const start = src.indexOf('function deriveStatus(');
+    assert.ok(start >= 0, 'deriveStatus not found');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+    assert.doesNotMatch(body, /'RETIRED_KEY_VALID_AT_ISSUE'/);
+    assert.doesNotMatch(body, /'REVOKED_KEY_UNDECIDABLE'/);
   });
 
   it('loadKeyring reads the registry document shape this gate is configured with', async () => {
