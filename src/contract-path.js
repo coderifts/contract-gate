@@ -22,7 +22,7 @@ const CONTRACT_EXT = /\.(ya?ml|json|graphql|gql|proto)$/i;
 // P65c (2026-10-07, 1.3.0): by name only the names that are a client configuration and nothing else; a
 // plain `mcp.json` is a candidate, decided by content after the read (isClientConfigContent below,
 // mirrored from the package's contract-write and held to it on a corpus by the mirror test).
-const MCP_CLIENT_CONFIG = /(^|\/)(\.mcp\.json|\.cursor\/mcp\.json|\.vscode\/mcp\.json|claude_desktop_config\.json|(cline_)?mcp_settings\.json)$/i;
+const MCP_CLIENT_CONFIG = /(^|\/)(\.mcp\.json|\.cursor\/mcp\.json|\.vscode\/mcp\.json|claude_desktop_config\.json|(cline_)?mcp_settings\.json|\.grok\/config\.toml)$/i;
 const MCP_JSON_BY_CONTENT = /(^|\/)mcp\.json$/i;
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
