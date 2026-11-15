@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- * P65 (2026-10-06, Péter's decision) — the Action decides as the hooks and the App do: an MCP client
+ * P65 (2026-10-06, the owner's decision) — the Action decides as the hooks and the App do: an MCP client
  * configuration is never a contract, by name, so it is never read from git and never sent to preflight.
  *
  * MEASURED (before): src/artifacts.js's own read list (`mcp[^/]*\.json`) matched `mcp.json`,

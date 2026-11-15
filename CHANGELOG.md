@@ -240,7 +240,7 @@ could verify.
 The optional `monitoring-delivery` input is therefore how evidence becomes
 reachable: it is the guard ≥8.4.0 observation JSON the workflow supplies, **not**
 a keyring-verified token. Do not read a pass under this flag as "the sink was
-cryptographically proven." The missing next tétel is a signed
+cryptographically proven." The missing next item is a signed
 monitoring-delivery attestation (or a guard-outcome envelope) that this gate
 can verify offline with the pinned keyring.
 

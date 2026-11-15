@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- * P65c (2026-10-07, Péter's decision) — the Action decides a plain `mcp.json` by its content, after its
+ * P65c (2026-10-07, the owner's decision) — the Action decides a plain `mcp.json` by its content, after its
  * own `git show`, with the vendored copy of @coderifts/contract-path 1.3.0's function (mirror-tested).
  *
  * MEASURED (v0.11.3): every `mcp.json` was refused by name, so a server's tool manifest named `mcp.json`
